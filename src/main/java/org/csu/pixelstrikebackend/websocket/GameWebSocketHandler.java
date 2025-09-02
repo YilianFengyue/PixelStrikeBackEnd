@@ -10,6 +10,10 @@ import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
+import org.springframework.web.util.UriComponentsBuilder;
+
+import java.io.IOException;
+import java.net.URI;
 
 @Component
 public class GameWebSocketHandler extends TextWebSocketHandler {
@@ -20,12 +24,33 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
-        // 实际项目中, 玩家应该先通过HTTP请求加入房间, 成功后再建立WebSocket连接
-        // 这里我们为了测试，可以先硬编码加入一个房间
-        // 假设Dev2的逻辑已经告诉我们这个玩家应该去哪个房间
-//        String roomId = "room1";
-        String roomId = (session.getId().hashCode() % 2 == 0) ? "room_even" : "room_odd";
-        roomManager.createAndStartRoom(roomId); // 如果房间不存在则创建
+        // --- 从WebSocket连接的URI中解析出roomId ---
+        URI uri = session.getUri();
+        if (uri == null) {
+            try {
+                session.close();
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+            return;
+        }
+
+        String roomId = UriComponentsBuilder.fromUri(uri)
+                .build()
+                .getQueryParams()
+                .getFirst("roomId");
+
+        if (roomId == null || roomId.trim().isEmpty()) {
+            System.err.println("Player connected without a roomId. Closing connection.");
+            try {
+                session.close(); // 如果客户端没有提供roomId，则拒绝连接
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+            return;
+        }
+
+        // 现在，我们不再负责创建房间，只负责将玩家加入GameRoomManager已知的房间
         roomManager.addPlayerToRoom(roomId, session);
     }
 

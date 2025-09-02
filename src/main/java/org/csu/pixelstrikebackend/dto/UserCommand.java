@@ -33,7 +33,7 @@ public class UserCommand {
     /**
      * 瞄准角度（以度为单位）。
      * 0度代表正右方，90度代表正上方，180度代表正左方。
-     * 这是服务器进行精确射线检测（hitscan）的依据。
+     * 这是服务器进行精确射线检测（hitScan）的依据。
      */
     private float aimAngle;
 

@@ -23,13 +23,12 @@ public class GameRoomManager {
 
     // 这个方法将由后端B(Dev2)的业务逻辑来调用
     public void createAndStartRoom(String roomId) {
-        if (activeRooms.containsKey(roomId)) {
-            return; // 房间已存在
-        }
-        System.out.println("Creating and starting room: " + roomId);
-        GameRoom newRoom = new GameRoom(roomId, broadcaster);
-        activeRooms.put(roomId, newRoom);
-        roomExecutor.submit(newRoom); // 在线程池中启动这个房间的游戏循环
+        activeRooms.computeIfAbsent(roomId, id -> {
+            System.out.println("Creating and starting new room: " + id);
+            GameRoom newRoom = new GameRoom(id, broadcaster);
+            roomExecutor.submit(newRoom); // 只有在创建新房间时才启动新线程
+            return newRoom;
+        });
     }
 
     public void addPlayerToRoom(String roomId, WebSocketSession session) {

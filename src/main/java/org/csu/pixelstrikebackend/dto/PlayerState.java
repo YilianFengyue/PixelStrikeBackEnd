@@ -35,6 +35,19 @@ public class PlayerState {
      */
     private PlayerActionState currentAction;
 
+    public PlayerState(PlayerState original) {
+        this.playerId = original.playerId;
+        this.x = original.x;
+        this.y = original.y;
+        this.velocityX = original.velocityX;
+        this.velocityY = original.velocityY;
+        this.health = original.health;
+        this.currentWeaponId = original.currentWeaponId;
+        this.ammo = original.ammo;
+        this.isFacingRight = original.isFacingRight;
+        this.currentAction = original.currentAction;
+    }
+
     public enum PlayerActionState {
         IDLE, RUN, JUMP, FALL, SHOOT, HIT, DEAD
     }
