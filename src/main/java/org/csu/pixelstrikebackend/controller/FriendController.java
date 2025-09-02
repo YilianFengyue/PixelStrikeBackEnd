@@ -1,0 +1,70 @@
+package org.csu.pixelstrikebackend.controller;
+
+import jakarta.servlet.http.HttpServletRequest;
+import org.csu.pixelstrikebackend.common.CommonResponse;
+import org.csu.pixelstrikebackend.dto.FriendDetailDTO;
+import org.csu.pixelstrikebackend.dto.FriendListDTO;
+import org.csu.pixelstrikebackend.entity.UserProfile;
+import org.csu.pixelstrikebackend.service.FriendService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/friends")
+public class FriendController {
+    @Autowired
+    private FriendService friendService;
+
+    // 按昵称模糊搜索用户 (GET /friends/search?nickname=...)
+    @GetMapping("/search")
+    public CommonResponse<List<FriendListDTO>> searchUsers(@RequestParam String nickname, HttpServletRequest request) {
+        // 从请求中获取当前登录用户的 ID
+        Integer currentUserId = (Integer) request.getAttribute("userId");
+        return friendService.searchUsersByNickname(nickname, currentUserId);
+    }
+
+    // 发送好友请求 (POST /friends/requests/{addrId})
+    @PostMapping("/requests/{addrId}")
+    public CommonResponse<?> sendFriendRequest(@PathVariable Integer addrId, HttpServletRequest request) {
+        Integer senderId = (Integer) request.getAttribute("userId");
+        return friendService.sendFriendRequest(senderId, addrId);
+    }
+
+    // 查看我的好友申请 (GET /friends/requests/pending)
+    @GetMapping("/requests/pending")
+    public CommonResponse<List<FriendListDTO>> getPendingRequests(HttpServletRequest request) {
+        Integer userId = (Integer) request.getAttribute("userId");
+        return friendService.getPendingRequests(userId);
+    }
+
+    // 同意好友申请 (PUT /friends/requests/{senderId}/accept)
+    @PutMapping("/requests/{senderId}/accept")
+    public CommonResponse<?> acceptFriendRequest(@PathVariable Integer senderId, HttpServletRequest request) {
+        Integer userId = (Integer) request.getAttribute("userId");
+        return friendService.acceptFriendRequest(userId, senderId);
+    }
+
+    /**
+     * **接口1: 获取好友列表**
+     * 用于好友列表页，返回包含昵称、头像和在线状态的摘要信息。
+     * GET /friends
+     */
+    @GetMapping
+    public CommonResponse<List<FriendListDTO>> getFriendList(HttpServletRequest request) {
+        Integer userId = (Integer) request.getAttribute("userId");
+        return friendService.getFriendList(userId);
+    }
+
+    /**
+     * **接口2: 获取好友详情**
+     * 用于好友详情页，当用户从列表点击某个好友时调用。
+     * GET /friends/{friendId}/details
+     */
+    @GetMapping("/{friendId}/details")
+    public CommonResponse<FriendDetailDTO> getFriendDetails(@PathVariable Integer friendId, HttpServletRequest request) {
+        Integer currentUserId = (Integer) request.getAttribute("userId");
+        return friendService.getFriendDetails(currentUserId, friendId);
+    }
+}
