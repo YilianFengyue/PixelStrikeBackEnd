@@ -6,9 +6,11 @@ import org.csu.pixelstrikebackend.dto.LoginRequest;
 import org.csu.pixelstrikebackend.dto.RegisterRequest;
 import org.csu.pixelstrikebackend.entity.User;
 import org.csu.pixelstrikebackend.entity.UserProfile;
+import org.csu.pixelstrikebackend.mapper.FriendMapper;
 import org.csu.pixelstrikebackend.mapper.UserMapper;
 import org.csu.pixelstrikebackend.mapper.UserProfileMapper;
 import org.csu.pixelstrikebackend.util.JwtUtil;
+import org.csu.pixelstrikebackend.websocket.WebSocketSessionManager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -16,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Service("authService")
@@ -28,6 +31,10 @@ public class AuthService {
     private PasswordEncoder passwordEncoder;
     @Autowired
     private OnlineUserService onlineUserService; // 新增注入
+    @Autowired
+    private WebSocketSessionManager webSocketSessionManager; // 新增注入
+    @Autowired
+    private FriendMapper friendMapper; // 新增注入
 
     @Transactional // 开启事务，确保两个表的插入操作要么都成功，要么都失败
     public CommonResponse<User> register(RegisterRequest request) {
@@ -99,6 +106,7 @@ public class AuthService {
             return CommonResponse.createForError("登录失败，Token 生成异常");
         }
 
+        notifyFriendsAboutStatusChange(user.getId(), "ONLINE");
 
         return CommonResponse.createForSuccess("登录成功", token);
     }
@@ -113,6 +121,36 @@ public class AuthService {
             return CommonResponse.createForError("用户未登录，无需登出");
         }
         onlineUserService.removeUser(userId);
+        // **新增：通知好友该用户已下线**
+        notifyFriendsAboutStatusChange(userId, "OFFLINE");
+
         return CommonResponse.createForSuccessMessage("登出成功");
+    }
+
+    /**
+     * 辅助方法，用于通知好友状态变更
+     * @param userId 状态变更的用户ID
+     * @param status 新的状态 (例如 "ONLINE", "OFFLINE")
+     */
+    private void notifyFriendsAboutStatusChange(Integer userId, String status) {
+        // 1. 查找该用户的所有好友
+        List<UserProfile> friends = friendMapper.selectFriendsProfiles(userId);
+        if (friends.isEmpty()) {
+            return;
+        }
+
+        // 2. 构建通知消息体
+        Map<String, Object> notification = new HashMap<>();
+        notification.put("type", "status_update"); // 消息类型
+        notification.put("userId", userId); // 哪个用户状态变了
+        notification.put("status", status); // 新的状态
+
+        // 3. 遍历好友，逐个发送 WebSocket 消息
+        System.out.println("Notifying friends of user " + userId + " about status change to " + status);
+        for (UserProfile friend : friends) {
+            if (onlineUserService.isUserOnline(friend.getUserId())) {
+                webSocketSessionManager.sendMessageToUser(friend.getUserId(), notification);
+            }
+        }
     }
 }
