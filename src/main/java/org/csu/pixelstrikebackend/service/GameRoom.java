@@ -17,10 +17,13 @@ public class GameRoom implements Runnable {
     private static final int PLAYER_MAX_HEALTH = 100;
     private static final int WEAPON_DAMAGE = 25;
     private static final long RESPAWN_TIME_MS = 3000; // 死亡后3秒复活
+    private static final double DEATH_ZONE_Y = 1200.0; // Y坐标超过这个值就死亡
+
 
     private static final double GRAVITY = 0.8; // 重力加速度
     private static final double JUMP_STRENGTH = -15.0; // 起跳初速度（负数代表向上）
     private static final double GROUND_Y = 500.0; // 地面Y坐标
+    private static final byte JUMP_ACTION = 1; // 约定: actions的第0位(值为1)代表跳跃
 
     // 临时的死亡玩家计时器 ---
     private final Map<String, Long> deadPlayerTimers = new ConcurrentHashMap<>();
@@ -109,6 +112,10 @@ public class GameRoom implements Runnable {
                             targetState.setHealth(targetState.getHealth() - WEAPON_DAMAGE);
                             targetState.setCurrentAction(PlayerState.PlayerActionState.HIT);
 
+                            // 施加击退力 (Knockback)
+                            double knockbackStrength = 25.0; // 这个值可以后续调整以优化手感
+                            targetState.setVelocityX(targetState.getVelocityX() + (attackerState.isFacingRight() ? knockbackStrength : -knockbackStrength));
+                            targetState.setVelocityY(targetState.getVelocityY() - 10.0); // 稍微向上击飞
                             // 创建一个击中事件
                             GameEvent hitEvent = new GameEvent();
                             hitEvent.setType(GameEvent.EventType.PLAYER_HIT);
@@ -130,9 +137,56 @@ public class GameRoom implements Runnable {
                         }
                     }
                 }
+
+                // 处理跳跃
+                // 约定: actions的第0位(值为1)代表跳跃
+                if ((command.getActions() & JUMP_ACTION) != 0) {
+                    // a. 在地面上，可以起跳
+                    if (attackerState.getY() >= GROUND_Y) {
+                        attackerState.setVelocityY(JUMP_STRENGTH);
+                        attackerState.setCanDoubleJump(true); // 离开地面后获得二段跳能力
+                    }
+                    // b. 在空中，且有二段跳能力
+                    else if (attackerState.isCanDoubleJump()) {
+                        attackerState.setVelocityY(JUMP_STRENGTH); // 再次赋予向上的速度
+                        attackerState.setCanDoubleJump(false); // 使用掉二段跳能力
+                    }
+                }
             }
 
             // 2. 更新世界状态
+            for (PlayerState player : playerStates.values()) {
+                // a. 应用重力 (在应用速度之前)
+                player.setVelocityY(player.getVelocityY() + GRAVITY);
+
+                // b. 应用速度更新位置 (这部分已在第一步中添加)
+                player.setX(player.getX() + player.getVelocityX());
+                player.setY(player.getY() + player.getVelocityY());
+
+                // c. 应用空气阻力/摩擦力 (这部分已在第一步中添加)
+                player.setVelocityX(player.getVelocityX() * 0.95);
+
+                // d. 地面检测
+                if (player.getY() >= GROUND_Y) {
+                    player.setY(GROUND_Y);
+                    player.setVelocityY(0);
+                    // 触地时重置二段跳能力，但这里先不重置，而是在起跳时赋予
+                }
+
+                // e. 掉落死亡检测
+                // 确保玩家当前不是已经处于死亡状态
+                if (player.getY() > DEATH_ZONE_Y && player.getCurrentAction() != PlayerState.PlayerActionState.DEAD) {
+                    player.setHealth(0); // 直接致死
+                    player.setCurrentAction(PlayerState.PlayerActionState.DEAD);
+                    deadPlayerTimers.put(player.getPlayerId(), System.currentTimeMillis() + RESPAWN_TIME_MS);
+
+                    // 创建一个死亡事件广播给客户端
+                    GameEvent dieEvent = new GameEvent();
+                    dieEvent.setType(GameEvent.EventType.PLAYER_DIED);
+                    dieEvent.setRelatedPlayerId(player.getPlayerId());
+                    currentTickEvents.add(dieEvent);
+                }
+            }
             // --- D. 处理复活 ---
             long currentTime = System.currentTimeMillis();
             Iterator<Map.Entry<String, Long>> iterator = deadPlayerTimers.entrySet().iterator();
@@ -145,6 +199,8 @@ public class GameRoom implements Runnable {
                         playerToRespawn.setCurrentAction(PlayerState.PlayerActionState.IDLE);
                         playerToRespawn.setX(100); // 重置到出生点
                         playerToRespawn.setY(100);
+                        playerToRespawn.setVelocityX(0);
+                        playerToRespawn.setVelocityY(0);
                     }
                     // 使用迭代器的remove()方法，这是唯一安全的方式
                     iterator.remove();
@@ -174,79 +230,6 @@ public class GameRoom implements Runnable {
         }
         System.out.printf("Game room %s has been shut down.\n", roomId);
     }
-
-//@Override
-//public void run() {
-//    final long TICK_RATE = 20;
-//    final long SKIP_TICKS = 1000 / TICK_RATE;
-//    long nextGameTick = System.currentTimeMillis();
-//    long tickNumber = 0;
-//
-//    while (isRunning) {
-//        tickNumber++;
-//        // 暂时禁用事件列表
-//        // List<GameEvent> currentTickEvents = new ArrayList<>();
-//
-//        // 1. 处理输入指令 (简化版)
-//        while (!commandQueue.isEmpty()) {
-//            UserCommand command = commandQueue.poll();
-//            if (command == null) continue;
-//
-//            PlayerState playerState = playerStates.get(command.getPlayerId());
-//            if (playerState == null) continue;
-//
-//            // --- 只保留最基础的移动逻辑 ---
-//            double newX = playerState.getX() + command.getMoveInput() * 5.0;
-//            playerState.setX(newX);
-//        }
-//
-//        // 2. 更新世界状态 (暂时禁用)
-//        // --- D. 处理复活 ---
-//        /*
-//        long currentTime = System.currentTimeMillis();
-//        for (Map.Entry<String, Long> entry : deadPlayerTimers.entrySet()) {
-//            if (currentTime >= entry.getValue()) {
-//                PlayerState playerToRespawn = playerStates.get(entry.getKey());
-//                if (playerToRespawn != null) {
-//                    playerToRespawn.setHealth(PLAYER_MAX_HEALTH);
-//                    playerToRespawn.setCurrentAction(PlayerState.PlayerActionState.IDLE);
-//                    playerToRespawn.setX(100);
-//                    playerToRespawn.setY(100);
-//                }
-//                deadPlayerTimers.remove(entry.getKey());
-//            }
-//        }
-//        */
-//
-//        // 3. 广播快照
-//        GameStateSnapshot snapshot = new GameStateSnapshot();
-//        snapshot.setTickNumber(tickNumber);
-//
-//        // --- 使用Stream和拷贝构造函数创建PlayerStates的深拷贝 ---
-//        Map<String, PlayerState> playerStatesCopy = this.playerStates.entrySet().stream()
-//                .collect(Collectors.toMap(
-//                        Map.Entry::getKey,
-//                        entry -> new PlayerState(entry.getValue()) // <-- 使用拷贝构造函数
-//                ));
-//        snapshot.setPlayers(playerStatesCopy);
-//
-////        snapshot.setEvents(currentTickEvents);
-//        broadcaster.broadcast(this.sessions.values(), snapshot);
-//
-//        // 4. 控制Tick率 (保持不变)
-//        nextGameTick += SKIP_TICKS;
-//        long sleepTime = nextGameTick - System.currentTimeMillis();
-//        if (sleepTime >= 0) {
-//            try {
-//                Thread.sleep(sleepTime);
-//            } catch (InterruptedException e) {
-//                Thread.currentThread().interrupt();
-//                isRunning = false;
-//            }
-//        }
-//    }
-//    System.out.printf("Game room %s has been shut down.\n", roomId);
-//}
 
 
     // --- 在GameRoom类中新增一个辅助方法用于命中判定 ---
