@@ -1,16 +1,19 @@
 package org.csu.pixelstrikebackend.service.impl;
 
 import org.csu.pixelstrikebackend.common.CommonResponse;
+import org.csu.pixelstrikebackend.entity.Match;
 import org.csu.pixelstrikebackend.entity.MatchmakingRoom;
 import org.csu.pixelstrikebackend.entity.UserProfile;
 import org.csu.pixelstrikebackend.enums.UserStatus;
 import org.csu.pixelstrikebackend.mapper.FriendMapper;
+import org.csu.pixelstrikebackend.mapper.MatchMapper;
 import org.csu.pixelstrikebackend.service.MatchmakingService;
 import org.csu.pixelstrikebackend.service.OnlineUserService;
 import org.csu.pixelstrikebackend.websocket.WebSocketSessionManager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -31,6 +34,8 @@ public class MatchmakingServiceImpl implements MatchmakingService {
     private WebSocketSessionManager webSocketSessionManager;
     @Autowired
     private FriendMapper friendMapper; // <-- 新增注入 FriendMapper
+    @Autowired
+    private MatchMapper matchMapper; // <-- 新增注入
 
     @Override
     public synchronized CommonResponse<?> startMatchmaking(Integer userId) {
@@ -112,7 +117,7 @@ public class MatchmakingServiceImpl implements MatchmakingService {
         return null;
     }
 
-    private void notifyMatchSuccess(MatchmakingRoom room) {
+    /*private void notifyMatchSuccess(MatchmakingRoom room) {
         String gameServerAddress = "ws://127.0.0.1:8080/game";
         String gameId = UUID.randomUUID().toString();
 
@@ -135,7 +140,34 @@ public class MatchmakingServiceImpl implements MatchmakingService {
             // 步骤3：向该玩家自己发送匹配成功的消息
             webSocketSessionManager.sendMessageToUser(playerId, successMessage);
         }
+    }*/
+    private void notifyMatchSuccess(MatchmakingRoom room) {
+        // **核心改动1: 先在 matches 表中创建对局记录，获取唯一的 BIGINT gameId**
+        Match newMatch = new Match();
+        newMatch.setGameMode("匹配");
+        newMatch.setMapName("默认地图"); // 可以在后续逻辑中随机选择
+        newMatch.setStartTime(LocalDateTime.now());
+        matchMapper.insert(newMatch); // 插入后，newMatch 对象的 id 会被自动填充
+        Long gameId = newMatch.getId(); // 这就是我们需要的、类型正确的 gameId
+
+        // 模拟游戏服务器信息
+        String gameServerAddress = "ws://127.0.0.1:9090/game";
+
+        // 构建成功消息
+        Map<String, Object> successMessage = Map.of(
+                "type", "match_success",
+                "gameId", gameId, // **核心改动2: 使用新的 BIGINT gameId**
+                "serverAddress", gameServerAddress
+        );
+
+        for (Integer playerId : room.getPlayers()) {
+            playerRoomMap.remove(playerId);
+            onlineUserService.updateUserStatus(playerId, UserStatus.IN_GAME);
+            notifyFriendsAboutStatusChange(playerId, "IN_GAME");
+            webSocketSessionManager.sendMessageToUser(playerId, successMessage);
+        }
     }
+
 
     /**
      * 辅助方法，用于通知好友状态变更

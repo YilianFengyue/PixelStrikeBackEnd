@@ -10,6 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
 @Getter
 public class MatchmakingRoom {
     private final String roomId;
+    //匹配所需的玩家数量
     private final int maxSize = 3;
     // 使用线程安全的 Set 来存储玩家ID
     private final Set<Integer> players = Collections.newSetFromMap(new ConcurrentHashMap<>());
