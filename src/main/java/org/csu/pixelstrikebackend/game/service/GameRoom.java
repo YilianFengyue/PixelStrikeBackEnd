@@ -4,7 +4,7 @@ import org.csu.pixelstrikebackend.dto.GameStateSnapshot;
 import org.csu.pixelstrikebackend.dto.GameStateSnapshot.GameEvent;
 import org.csu.pixelstrikebackend.dto.PlayerState;
 import org.csu.pixelstrikebackend.dto.UserCommand;
-import org.csu.pixelstrikebackend.service.WebSocketBroadcastService;
+import org.csu.pixelstrikebackend.lobby.entity.MatchParticipant;
 import org.springframework.web.socket.WebSocketSession;
 
 import java.util.*;
@@ -37,9 +37,12 @@ public class GameRoom implements Runnable {
 
     private final WebSocketBroadcastService broadcaster;
 
-    public GameRoom(String roomId, WebSocketBroadcastService broadcaster) {
+    private final GameRoomManager roomManager; // 保存一个引用
+
+    public GameRoom(String roomId, WebSocketBroadcastService broadcaster, GameRoomManager roomManager) {
         this.roomId = roomId;
         this.broadcaster = broadcaster;
+        this.roomManager = roomManager; // 构造时传入
     }
 
     public void addPlayer(WebSocketSession session) {
@@ -229,9 +232,19 @@ public class GameRoom implements Runnable {
                 }
             }
         }
+        reportGameResults();
         System.out.printf("Game room %s has been shut down.\n", roomId);
     }
 
+    private void reportGameResults() {
+        // 1. 收集战绩
+        List<MatchParticipant> results = new ArrayList<>();
+        // ... (填充results)
+
+        // 2. 通过roomManager上报
+        Long gameId = Long.parseLong(this.roomId);
+        this.roomManager.onGameConcluded(gameId, results);
+    }
 
     // --- 在GameRoom类中新增一个辅助方法用于命中判定 ---
     private boolean isHit(PlayerState attacker, PlayerState target) {

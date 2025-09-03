@@ -2,7 +2,7 @@ package org.csu.pixelstrikebackend.lobby.controller;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.csu.pixelstrikebackend.lobby.common.CommonResponse;
-import org.csu.pixelstrikebackend.service.MatchmakingService;
+import org.csu.pixelstrikebackend.lobby.service.MatchmakingService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;

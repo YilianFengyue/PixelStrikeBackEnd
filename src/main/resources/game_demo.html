@@ -39,10 +39,17 @@
         <button onclick="loginUser()">登录</button>
     </div>
 
-    <div id="room-section" style="display: none;">
+    <!--<div id="room-section" style="display: none;">
         <h2>2. 加入游戏</h2>
         <p>已登录: <b id="current-user"></b></p>
         <button id="quick-join-btn" onclick="quickJoin()">快速加入房间</button>
+    </div>-->
+
+    <div id="room-section" style="display: none;">
+        <h2>2. 加入游戏</h2>
+        <p>已登录: <b id="current-user"></b></p>
+        <button id="start-match-btn" onclick="startMatchmaking()">开始匹配</button>
+        <button id="cancel-match-btn" onclick="cancelMatchmaking()" disabled>取消匹配</button>
     </div>
 
     <div id="info-section" style="display: none; margin-top: 20px;">
@@ -66,7 +73,8 @@
     const API_BASE_URL = 'http://localhost:8080';
     const WS_BASE_URL = 'ws://localhost:8080';
     let authToken = null;
-    let webSocket = null;
+    let gameSocket = null;
+    let lobbySocket = null; // 新增：用于大厅通知的WebSocket
     let myPlayerId = null;
 
     let gameState = { players: {} };
@@ -98,16 +106,79 @@
             });
             const result = await response.json();
             if (response.ok && result.status === 0) {
-                authToken = result.data;
+                /*authToken = result.data;
                 log(`登录成功!`);
                 document.getElementById('room-section').style.display = 'block';
                 document.getElementById('info-section').style.display = 'block';
-                document.getElementById('current-user').innerText = username;
+                document.getElementById('current-user').innerText = username;*/
+                onLoginSuccess(username, result.data);
             } else { throw new Error(result.message); }
         } catch (error) { log(`登录失败: ${error.message}`, 'error'); }
     }
 
-    async function quickJoin() {
+    function onLoginSuccess(username, token) {
+        authToken = token;
+        log(`登录成功!`);
+        document.getElementById('room-section').style.display = 'block';
+        document.getElementById('info-section').style.display = 'block';
+        document.getElementById('current-user').innerText = username;
+
+        // 登录后立刻连接大厅WebSocket
+        connectLobbySocket();
+    }
+
+    // --- 新增：连接大厅WebSocket ---
+    function connectLobbySocket() {
+        // 大厅WebSocket需要用token进行认证
+        const lobbyWsUrl = `${WS_BASE_URL}/ws?token=${authToken}`;
+        log(`连接到大厅: ${lobbyWsUrl}`);
+        lobbySocket = new WebSocket(lobbyWsUrl);
+
+        lobbySocket.onopen = () => log('大厅连接成功!');
+        lobbySocket.onclose = () => log('大厅连接断开。', 'error');
+        lobbySocket.onmessage = (event) => {
+            const message = JSON.parse(event.data);
+            log(`收到大厅消息: ${JSON.stringify(message)}`);
+
+            // 核心：处理匹配成功消息
+            if (message.type === 'match_success') {
+                log(`匹配成功! 游戏ID: ${message.gameId}. 准备连接游戏服务器...`);
+                // 使用返回的gameId连接游戏WebSocket
+                connectGameWebSocket(message.gameId);
+
+                // 更新UI
+                document.getElementById('start-match-btn').disabled = false;
+                document.getElementById('cancel-match-btn').disabled = true;
+            }
+        };
+    }
+
+    // --- 新增：匹配相关函数 ---
+    async function startMatchmaking() {
+        log('请求开始匹配...');
+        document.getElementById('start-match-btn').disabled = true;
+        document.getElementById('cancel-match-btn').disabled = false;
+        try {
+            await fetch(`${API_BASE_URL}/matchmaking/start`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+        } catch(error) { log(`开始匹配失败: ${error.message}`, 'error');}
+    }
+
+    async function cancelMatchmaking() {
+        log('请求取消匹配...');
+        document.getElementById('start-match-btn').disabled = false;
+        document.getElementById('cancel-match-btn').disabled = true;
+        try {
+            await fetch(`${API_BASE_URL}/matchmaking/cancel`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+        } catch(error) { log(`取消匹配失败: ${error.message}`, 'error');}
+    }
+
+    /*async function quickJoin() {
         // ... (quickJoin logic from previous HTML, unchanged)
         log('请求加入房间...');
         try {
@@ -121,6 +192,35 @@
                 connectWebSocket(result.roomId);
             } else { throw new Error(result.message); }
         } catch(error) { log(`加入房间失败: ${error.message}`, 'error');}
+    }
+*/
+
+    function connectGameWebSocket(gameId) {
+        // gameSocket 的 URL 现在使用 gameId
+        const wsUrl = `${WS_BASE_URL}/game?gameId=${gameId}`;
+        log(`连接到游戏: ${wsUrl}`);
+        gameSocket = new WebSocket(wsUrl); // 使用 gameSocket 变量
+
+        gameSocket.onopen = () => {
+            log('游戏WebSocket连接成功!');
+            document.getElementById('ws-status').textContent = '已连接';
+            document.getElementById('ws-status').className = 'status-badge status-connected';
+        };
+
+        gameSocket.onmessage = (event) => {
+            gameState = JSON.parse(event.data);
+            if (!myPlayerId && Object.keys(gameState.players).length > 0) {
+                const playerIds = Object.keys(gameState.players);
+                myPlayerId = playerIds[playerIds.length - 1];
+                document.getElementById('my-player-id').textContent = myPlayerId.substring(0, 8) + '...';
+            }
+        };
+        gameSocket.onclose = () => {
+            log('游戏WebSocket连接断开。', 'error');
+            document.getElementById('ws-status').textContent = '未连接';
+            document.getElementById('ws-status').className = 'status-badge status-disconnected';
+            myPlayerId = null;
+        };
     }
 
     function connectWebSocket(roomId) {
@@ -167,29 +267,53 @@
     });
 
     // Send commands to server at a fixed rate (client-side tick)
+    // setInterval(() => {
+    //     if (!webSocket || webSocket.readyState !== WebSocket.OPEN) return;
+    //
+    //     let moveInput = 0;
+    //     if (keys.a) moveInput = -1;
+    //     if (keys.d) moveInput = 1;
+    //
+    //     let actions = 0;
+    //     if (keys.w || keys[' ']) actions |= 1; // Bit 0 for Jump
+    //     if (keys.j) actions |= 2;             // Bit 1 for Shoot
+    //
+    //     const command = {
+    //         moveInput: moveInput,
+    //         actions: actions
+    //     };
+    //     webSocket.send(JSON.stringify(command));
+    //
+    //     // Reset single-press actions like jump and shoot
+    //     keys.w = false;
+    //     keys[' '] = false;
+    //     keys.j = false;
+    //
+    // }, 50); // Send updates every 50ms (20Hz)
+
+    // --- 修改：发送指令的定时器，确保使用 gameSocket ---
     setInterval(() => {
-        if (!webSocket || webSocket.readyState !== WebSocket.OPEN) return;
+        if (!gameSocket || gameSocket.readyState !== WebSocket.OPEN) return;
 
         let moveInput = 0;
         if (keys.a) moveInput = -1;
         if (keys.d) moveInput = 1;
 
         let actions = 0;
-        if (keys.w || keys[' ']) actions |= 1; // Bit 0 for Jump
-        if (keys.j) actions |= 2;             // Bit 1 for Shoot
+        if (keys.w || keys[' ']) actions |= 1;
+        if (keys.j) actions |= 2;
 
         const command = {
             moveInput: moveInput,
             actions: actions
         };
-        webSocket.send(JSON.stringify(command));
-        
-        // Reset single-press actions like jump and shoot
+        gameSocket.send(JSON.stringify(command));
+
         keys.w = false;
         keys[' '] = false;
         keys.j = false;
 
-    }, 50); // Send updates every 50ms (20Hz)
+    }, 50);
 
     // --- Rendering Loop ---
     function gameLoop() {

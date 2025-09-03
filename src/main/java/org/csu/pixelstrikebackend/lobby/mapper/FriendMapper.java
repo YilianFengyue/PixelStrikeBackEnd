@@ -1,11 +1,10 @@
 package org.csu.pixelstrikebackend.lobby.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
-import org.csu.pixelstrikebackend.entity.Friend;
-import org.csu.pixelstrikebackend.entity.UserProfile;
+import org.csu.pixelstrikebackend.lobby.entity.Friend;
+import org.csu.pixelstrikebackend.lobby.entity.UserProfile;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;

@@ -1,7 +1,7 @@
 package org.csu.pixelstrikebackend.lobby.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import org.csu.pixelstrikebackend.entity.User;
+import org.csu.pixelstrikebackend.lobby.entity.User;
 import org.springframework.stereotype.Repository;
 
 @Repository

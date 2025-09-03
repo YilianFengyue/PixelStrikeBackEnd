@@ -1,8 +1,8 @@
 package org.csu.pixelstrikebackend.config;
 
-import org.csu.pixelstrikebackend.websocket.AuthHandshakeInterceptor;
-import org.csu.pixelstrikebackend.websocket.GameWebSocketHandler;
-import org.csu.pixelstrikebackend.websocket.UserStatusWebSocketHandler;
+import org.csu.pixelstrikebackend.lobby.websocket.AuthHandshakeInterceptor;
+import org.csu.pixelstrikebackend.game.websocket.GameWebSocketHandler;
+import org.csu.pixelstrikebackend.lobby.websocket.UserStatusWebSocketHandler;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;

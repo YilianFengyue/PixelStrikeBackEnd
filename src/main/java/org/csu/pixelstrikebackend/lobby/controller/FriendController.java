@@ -2,9 +2,9 @@ package org.csu.pixelstrikebackend.lobby.controller;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.csu.pixelstrikebackend.lobby.common.CommonResponse;
-import org.csu.pixelstrikebackend.dto.FriendDetailDTO;
-import org.csu.pixelstrikebackend.dto.FriendListDTO;
-import org.csu.pixelstrikebackend.service.FriendService;
+import org.csu.pixelstrikebackend.lobby.dto.FriendDetailDTO;
+import org.csu.pixelstrikebackend.lobby.dto.FriendListDTO;
+import org.csu.pixelstrikebackend.lobby.service.FriendService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 

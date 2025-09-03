@@ -2,7 +2,7 @@
 
 package org.csu.pixelstrikebackend.lobby.controller;
 
-import org.csu.pixelstrikebackend.service.GameRoomManager;
+import org.csu.pixelstrikebackend.game.service.GameRoomManager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -30,7 +30,7 @@ public class RoomController {
         String roomId = "room1"; 
 
         // 确保这个房间的线程已经启动
-        roomManager.createAndStartRoom(roomId);
+        //roomManager.createAndStartRoom(roomId);
 
         // 将roomId返回给客户端
         return ResponseEntity.ok(Map.of("roomId", roomId));
