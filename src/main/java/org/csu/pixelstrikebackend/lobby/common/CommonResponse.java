@@ -1,4 +1,4 @@
-package org.csu.pixelstrikebackend.common;
+package org.csu.pixelstrikebackend.lobby.common;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;

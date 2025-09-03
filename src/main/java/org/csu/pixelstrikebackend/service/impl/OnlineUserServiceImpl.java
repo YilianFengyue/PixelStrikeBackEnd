@@ -1,6 +1,6 @@
 package org.csu.pixelstrikebackend.service.impl;
 
-import org.csu.pixelstrikebackend.enums.UserStatus;
+import org.csu.pixelstrikebackend.lobby.enums.UserStatus;
 import org.csu.pixelstrikebackend.service.OnlineUserService;
 import org.springframework.stereotype.Service;
 

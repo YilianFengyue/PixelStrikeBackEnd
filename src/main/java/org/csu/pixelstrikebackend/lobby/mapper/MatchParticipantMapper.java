@@ -1,4 +1,4 @@
-package org.csu.pixelstrikebackend.mapper;
+package org.csu.pixelstrikebackend.lobby.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;

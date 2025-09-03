@@ -1,4 +1,4 @@
-package org.csu.pixelstrikebackend.enums;
+package org.csu.pixelstrikebackend.lobby.enums;
 
 public enum UserStatus {
     ONLINE,  // 在线

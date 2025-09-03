@@ -1,12 +1,13 @@
 package org.csu.pixelstrikebackend.service.impl;
 
-import org.csu.pixelstrikebackend.common.CommonResponse;
+import org.csu.pixelstrikebackend.lobby.common.CommonResponse;
 import org.csu.pixelstrikebackend.entity.Match;
 import org.csu.pixelstrikebackend.entity.MatchmakingRoom;
 import org.csu.pixelstrikebackend.entity.UserProfile;
-import org.csu.pixelstrikebackend.enums.UserStatus;
-import org.csu.pixelstrikebackend.mapper.FriendMapper;
-import org.csu.pixelstrikebackend.mapper.MatchMapper;
+import org.csu.pixelstrikebackend.lobby.enums.UserStatus;
+import org.csu.pixelstrikebackend.lobby.mapper.FriendMapper;
+import org.csu.pixelstrikebackend.lobby.mapper.MatchMapper;
+import org.csu.pixelstrikebackend.lobby.mapper.UserProfileMapper;
 import org.csu.pixelstrikebackend.service.MatchmakingService;
 import org.csu.pixelstrikebackend.service.OnlineUserService;
 import org.csu.pixelstrikebackend.websocket.WebSocketSessionManager;
@@ -16,7 +17,6 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -36,6 +36,8 @@ public class MatchmakingServiceImpl implements MatchmakingService {
     private FriendMapper friendMapper; // <-- 新增注入 FriendMapper
     @Autowired
     private MatchMapper matchMapper; // <-- 新增注入
+    @Autowired
+    private UserProfileMapper userProfileMapper;
 
     @Override
     public synchronized CommonResponse<?> startMatchmaking(Integer userId) {
@@ -151,7 +153,7 @@ public class MatchmakingServiceImpl implements MatchmakingService {
         Long gameId = newMatch.getId(); // 这就是我们需要的、类型正确的 gameId
 
         // 模拟游戏服务器信息
-        String gameServerAddress = "ws://127.0.0.1:9090/game";
+        String gameServerAddress = "ws://127.0.0.1:8080/game";
 
         // 构建成功消息
         Map<String, Object> successMessage = Map.of(
@@ -180,9 +182,13 @@ public class MatchmakingServiceImpl implements MatchmakingService {
             return;
         }
 
+        UserProfile userProfile = userProfileMapper.selectById(userId);
+        if (userProfile == null) return;
+
         Map<String, Object> notification = Map.of(
                 "type", "status_update",
                 "userId", userId,
+                "nickname", userProfile.getNickname(), // **新增 nickname 字段**
                 "status", status
         );
 

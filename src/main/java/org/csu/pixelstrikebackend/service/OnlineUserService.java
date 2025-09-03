@@ -1,6 +1,6 @@
 package org.csu.pixelstrikebackend.service;
 
-import org.csu.pixelstrikebackend.enums.UserStatus;
+import org.csu.pixelstrikebackend.lobby.enums.UserStatus;
 
 public interface OnlineUserService {
     void addUser(Integer userId);

@@ -2,20 +2,22 @@ package org.csu.pixelstrikebackend.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
-import org.csu.pixelstrikebackend.common.CommonResponse;
+import org.csu.pixelstrikebackend.lobby.common.CommonResponse;
 import org.csu.pixelstrikebackend.dto.FriendDetailDTO;
 import org.csu.pixelstrikebackend.dto.FriendListDTO;
 import org.csu.pixelstrikebackend.entity.Friend;
 import org.csu.pixelstrikebackend.entity.UserProfile;
-import org.csu.pixelstrikebackend.mapper.FriendMapper;
-import org.csu.pixelstrikebackend.mapper.UserProfileMapper;
+import org.csu.pixelstrikebackend.lobby.mapper.FriendMapper;
+import org.csu.pixelstrikebackend.lobby.mapper.UserProfileMapper;
 import org.csu.pixelstrikebackend.service.FriendService;
 import org.csu.pixelstrikebackend.service.OnlineUserService;
+import org.csu.pixelstrikebackend.websocket.WebSocketSessionManager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service("friendService")
@@ -28,6 +30,8 @@ public class FriendServiceImpl implements FriendService {
     private FriendMapper friendMapper;
     @Autowired
     private OnlineUserService onlineUserService;
+    @Autowired
+    private WebSocketSessionManager webSocketSessionManager;
 
     @Override
     public CommonResponse<List<FriendListDTO>> searchUsersByNickname(String nickname, Integer currentUserId) {
@@ -61,6 +65,10 @@ public class FriendServiceImpl implements FriendService {
         if (senderId.equals(addrId)) {
             return CommonResponse.createForError("不能添加自己为好友");
         }
+        UserProfile userProfile = userProfileMapper.selectById(addrId);
+        if(userProfile == null) {
+            return CommonResponse.createForError("添加玩家不存在");
+        }
         QueryWrapper<Friend> queryWrapper = new QueryWrapper<>();
         queryWrapper.and(wrapper -> wrapper.eq("sender_id", senderId).eq("addr_id", addrId))
                 .or(wrapper -> wrapper.eq("sender_id", addrId).eq("addr_id", senderId));
@@ -72,6 +80,17 @@ public class FriendServiceImpl implements FriendService {
         friendRequest.setAddrId(addrId);
         friendRequest.setStatus("pending");
         friendMapper.insert(friendRequest);
+
+        if (onlineUserService.isUserOnline(addrId)) {
+            UserProfile senderProfile = userProfileMapper.selectById(senderId);
+            Map<String, Object> notification = Map.of(
+                    "type", "new_friend_request",
+                    "senderId", senderId,
+                    "senderNickname", senderProfile.getNickname()
+            );
+            webSocketSessionManager.sendMessageToUser(addrId, notification);
+        }
+
         return CommonResponse.createForSuccessMessage("好友请求已发送");
     }
 
@@ -104,7 +123,21 @@ public class FriendServiceImpl implements FriendService {
         updateWrapper.eq("sender_id", senderId).eq("addr_id", userId).eq("status", "pending");
         updateWrapper.set("status", "accepted");
         int result = friendMapper.update(null, updateWrapper);
-        return result > 0 ? CommonResponse.createForSuccessMessage("已同意好友请求") : CommonResponse.createForError("请求不存在或已处理");
+        if (result > 0) {
+            // **核心改动4：通知请求方，好友请求已被接受**
+            if (onlineUserService.isUserOnline(senderId)) {
+                UserProfile acceptorProfile = userProfileMapper.selectById(userId);
+                Map<String, Object> notification = Map.of(
+                        "type", "friend_request_accepted",
+                        "acceptorId", userId,
+                        "acceptorNickname", acceptorProfile.getNickname()
+                );
+                webSocketSessionManager.sendMessageToUser(senderId, notification);
+            }
+            return CommonResponse.createForSuccessMessage("已同意好友请求");
+        } else {
+            return CommonResponse.createForError("请求不存在或已处理");
+        }
     }
 
     @Override

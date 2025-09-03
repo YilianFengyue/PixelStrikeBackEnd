@@ -2,7 +2,7 @@ package org.csu.pixelstrikebackend.websocket;
 
 import com.google.gson.Gson;
 import org.csu.pixelstrikebackend.dto.UserCommand;
-import org.csu.pixelstrikebackend.service.GameRoom;
+import org.csu.pixelstrikebackend.game.service.GameRoom;
 import org.csu.pixelstrikebackend.service.GameRoomManager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;

@@ -1,13 +1,13 @@
-package org.csu.pixelstrikebackend.controller;
+package org.csu.pixelstrikebackend.lobby.controller;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import org.csu.pixelstrikebackend.common.CommonResponse;
+import org.csu.pixelstrikebackend.lobby.common.CommonResponse;
 import org.csu.pixelstrikebackend.dto.LoginRequest;
 import org.csu.pixelstrikebackend.dto.RegisterRequest;
 import org.csu.pixelstrikebackend.entity.User;
 import org.csu.pixelstrikebackend.entity.UserProfile;
-import org.csu.pixelstrikebackend.mapper.UserProfileMapper;
+import org.csu.pixelstrikebackend.lobby.mapper.UserProfileMapper;
 import org.csu.pixelstrikebackend.service.AuthService;
 import org.csu.pixelstrikebackend.service.OnlineUserService;
 import org.springframework.beans.factory.annotation.Autowired;

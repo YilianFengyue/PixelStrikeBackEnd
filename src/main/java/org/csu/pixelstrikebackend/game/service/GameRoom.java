@@ -1,9 +1,10 @@
-package org.csu.pixelstrikebackend.service;
+package org.csu.pixelstrikebackend.game.service;
 
 import org.csu.pixelstrikebackend.dto.GameStateSnapshot;
 import org.csu.pixelstrikebackend.dto.GameStateSnapshot.GameEvent;
 import org.csu.pixelstrikebackend.dto.PlayerState;
 import org.csu.pixelstrikebackend.dto.UserCommand;
+import org.csu.pixelstrikebackend.service.WebSocketBroadcastService;
 import org.springframework.web.socket.WebSocketSession;
 
 import java.util.*;
@@ -175,6 +176,18 @@ public class GameRoom implements Runnable {
         System.out.printf("Game room %s has been shut down.\n", roomId);
     }
 
+    /**
+     * 新增方法：收集本局对战结果并上报给大厅服务
+     */
+    private void reportGameResultsToLobby() {
+        System.out.println("Reporting results for game " + this.roomId + " to Lobby Service.");
+        // TODO:
+        // 1. 收集所有玩家的最终战绩 (Kills, Deaths, Score等)。
+        // 2. 构建一个包含战绩数据的DTO。
+        // 3. 使用HTTP客户端(例如 WebClient 或 RestTemplate)
+        //    向大厅服务的一个内部API地址(例如 http://lobby-service/internal/matches/results)
+        //    发送一个POST请求，上报数据。
+    }
 //@Override
 //public void run() {
 //    final long TICK_RATE = 20;

@@ -1,5 +1,6 @@
 package org.csu.pixelstrikebackend.service;
 
+import org.csu.pixelstrikebackend.game.service.GameRoom;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.WebSocketSession;

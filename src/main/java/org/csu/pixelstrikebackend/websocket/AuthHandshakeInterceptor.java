@@ -1,6 +1,6 @@
 package org.csu.pixelstrikebackend.websocket;
 
-import org.csu.pixelstrikebackend.util.JwtUtil;
+import org.csu.pixelstrikebackend.lobby.util.JwtUtil;
 import org.springframework.http.server.ServerHttpRequest;
 import org.springframework.http.server.ServerHttpResponse;
 import org.springframework.stereotype.Component;

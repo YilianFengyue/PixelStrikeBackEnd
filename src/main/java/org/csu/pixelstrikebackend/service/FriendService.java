@@ -1,9 +1,8 @@
 package org.csu.pixelstrikebackend.service;
 
-import org.csu.pixelstrikebackend.common.CommonResponse;
+import org.csu.pixelstrikebackend.lobby.common.CommonResponse;
 import org.csu.pixelstrikebackend.dto.FriendDetailDTO;
 import org.csu.pixelstrikebackend.dto.FriendListDTO;
-import org.csu.pixelstrikebackend.entity.UserProfile;
 
 import java.util.List;
 

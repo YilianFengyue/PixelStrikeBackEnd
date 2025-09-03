@@ -1,6 +1,6 @@
 // 文件路径: src/main/java/org/csu/pixelstrikebackend/controller/RoomController.java
 
-package org.csu.pixelstrikebackend.controller;
+package org.csu.pixelstrikebackend.lobby.controller;
 
 import org.csu.pixelstrikebackend.service.GameRoomManager;
 import org.springframework.beans.factory.annotation.Autowired;

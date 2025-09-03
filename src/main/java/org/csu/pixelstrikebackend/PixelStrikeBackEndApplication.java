@@ -7,7 +7,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
 @EnableScheduling
-@MapperScan("org.csu.pixelstrikebackend.mapper")
+@MapperScan("org.csu.pixelstrikebackend.lobby.mapper")
 public class PixelStrikeBackEndApplication {
 
     public static void main(String[] args) {

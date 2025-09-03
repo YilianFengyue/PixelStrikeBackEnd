@@ -1,4 +1,4 @@
-package org.csu.pixelstrikebackend.common;
+package org.csu.pixelstrikebackend.lobby.common;
 
 import lombok.Getter;
 

@@ -1,15 +1,15 @@
 package org.csu.pixelstrikebackend.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import org.csu.pixelstrikebackend.common.CommonResponse;
+import org.csu.pixelstrikebackend.lobby.common.CommonResponse;
 import org.csu.pixelstrikebackend.dto.LoginRequest;
 import org.csu.pixelstrikebackend.dto.RegisterRequest;
 import org.csu.pixelstrikebackend.entity.User;
 import org.csu.pixelstrikebackend.entity.UserProfile;
-import org.csu.pixelstrikebackend.mapper.FriendMapper;
-import org.csu.pixelstrikebackend.mapper.UserMapper;
-import org.csu.pixelstrikebackend.mapper.UserProfileMapper;
-import org.csu.pixelstrikebackend.util.JwtUtil;
+import org.csu.pixelstrikebackend.lobby.mapper.FriendMapper;
+import org.csu.pixelstrikebackend.lobby.mapper.UserMapper;
+import org.csu.pixelstrikebackend.lobby.mapper.UserProfileMapper;
+import org.csu.pixelstrikebackend.lobby.util.JwtUtil;
 import org.csu.pixelstrikebackend.websocket.WebSocketSessionManager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -139,10 +139,16 @@ public class AuthService {
             return;
         }
 
+        // **核心改动1：获取状态变更用户的昵称**
+        UserProfile userProfile = userProfileMapper.selectById(userId);
+        if (userProfile == null) return; // 如果找不到用户信息，则不发送
+
+
         // 2. 构建通知消息体
         Map<String, Object> notification = new HashMap<>();
         notification.put("type", "status_update"); // 消息类型
         notification.put("userId", userId); // 哪个用户状态变了
+        notification.put("nickname", userProfile.getNickname()); // **新增 nickname 字段**
         notification.put("status", status); // 新的状态
 
         // 3. 遍历好友，逐个发送 WebSocket 消息

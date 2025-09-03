@@ -1,14 +1,13 @@
 package org.csu.pixelstrikebackend.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import org.csu.pixelstrikebackend.common.CommonResponse;
-import org.csu.pixelstrikebackend.dto.RegisterRequest;
+import org.csu.pixelstrikebackend.lobby.common.CommonResponse;
 import org.csu.pixelstrikebackend.dto.ResetPasswordRequest;
 import org.csu.pixelstrikebackend.dto.UpdateProfileRequest;
 import org.csu.pixelstrikebackend.entity.User;
 import org.csu.pixelstrikebackend.entity.UserProfile;
-import org.csu.pixelstrikebackend.mapper.UserMapper;
-import org.csu.pixelstrikebackend.mapper.UserProfileMapper;
+import org.csu.pixelstrikebackend.lobby.mapper.UserMapper;
+import org.csu.pixelstrikebackend.lobby.mapper.UserProfileMapper;
 import org.csu.pixelstrikebackend.service.OnlineUserService;
 import org.csu.pixelstrikebackend.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;

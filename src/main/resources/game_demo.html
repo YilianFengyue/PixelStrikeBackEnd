@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>PixelStrike 可视化物理测试Demo</title>
+    <style>
+        body { font-family: sans-serif; display: flex; justify-content: center; align-items: flex-start; padding: 20px; background-color: #f0f0f0; gap: 20px; }
+        .panel { background-color: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); padding: 20px; }
+        .controls { min-width: 300px; }
+        .game-container { text-align: center; }
+        canvas { background-color: #d0e7ff; border: 2px solid #333; }
+        h2 { border-bottom: 1px solid #e0e0e0; padding-bottom: 10px; margin-top: 0; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input { width: calc(100% - 20px); padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+        button { width: 100%; padding: 10px; background-color: #007bff; color: white; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #aaa; }
+        #log-container { height: 200px; overflow-y: auto; border: 1px solid #ddd; background-color: #f8f8f8; padding: 10px; font-family: monospace; font-size: 12px; margin-top: 15px; }
+        .log-entry.error { color: #D8000C; }
+        .status-badge { padding: 4px 8px; border-radius: 12px; color: white; font-size: 12px; }
+        .status-connected { background-color: #28a745; }
+        .status-disconnected { background-color: #dc3545; }
+    </style>
+</head>
+<body>
+
+<div class="panel controls">
+    <div id="login-section">
+        <h2>1. 登录</h2>
+        <div class="form-group">
+            <label for="login-username">用户名:</label>
+            <input type="text" id="login-username" value="player_one">
+        </div>
+        <div class="form-group">
+            <label for="login-password">密码:</label>
+            <input type="password" id="login-password" value="password123">
+        </div>
+        <button onclick="loginUser()">登录</button>
+    </div>
+
+    <div id="room-section" style="display: none;">
+        <h2>2. 加入游戏</h2>
+        <p>已登录: <b id="current-user"></b></p>
+        <button id="quick-join-btn" onclick="quickJoin()">快速加入房间</button>
+    </div>
+
+    <div id="info-section" style="display: none; margin-top: 20px;">
+        <h2>游戏信息</h2>
+        <p>WebSocket: <span id="ws-status" class="status-badge status-disconnected">未连接</span></p>
+        <p>我的玩家ID: <b id="my-player-id">N/A</b></p>
+        <h3>操作说明:</h3>
+        <p><b>A / D</b>: 左右移动</p>
+        <p><b>W / 空格</b>: 跳跃 / 二段跳</p>
+        <p><b>J</b>: 向当前朝向开火</p>
+    </div>
+    <div id="log-container"></div>
+</div>
+
+<div class="panel game-container">
+    <h2>游戏场景</h2>
+    <canvas id="game-canvas" width="800" height="600"></canvas>
+</div>
+
+<script>
+    const API_BASE_URL = 'http://localhost:8080';
+    const WS_BASE_URL = 'ws://localhost:8080';
+    let authToken = null;
+    let webSocket = null;
+    let myPlayerId = null;
+
+    let gameState = { players: {} };
+    const keys = { a: false, d: false, w: false, " ": false, j: false };
+
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d');
+
+    const logContainer = document.getElementById('log-container');
+
+    function log(message, type = 'info') {
+        const entry = document.createElement('div');
+        entry.className = `log-entry ${type}`;
+        entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+        logContainer.prepend(entry);
+    }
+
+    // --- API & WebSocket Logic ---
+    async function loginUser() {
+        // ... (loginUser logic from previous HTML, unchanged)
+        const username = document.getElementById('login-username').value;
+        const password = document.getElementById('login-password').value;
+        log(`登录用户: ${username}`);
+        try {
+            const response = await fetch(`${API_BASE_URL}/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            const result = await response.json();
+            if (response.ok && result.status === 0) {
+                authToken = result.data;
+                log(`登录成功!`);
+                document.getElementById('room-section').style.display = 'block';
+                document.getElementById('info-section').style.display = 'block';
+                document.getElementById('current-user').innerText = username;
+            } else { throw new Error(result.message); }
+        } catch (error) { log(`登录失败: ${error.message}`, 'error'); }
+    }
+
+    async function quickJoin() {
+        // ... (quickJoin logic from previous HTML, unchanged)
+        log('请求加入房间...');
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/rooms/quick-join`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+            const result = await response.json();
+            if (response.ok) {
+                log(`成功获取房间号: ${result.roomId}`);
+                connectWebSocket(result.roomId);
+            } else { throw new Error(result.message); }
+        } catch(error) { log(`加入房间失败: ${error.message}`, 'error');}
+    }
+
+    function connectWebSocket(roomId) {
+        const wsUrl = `${WS_BASE_URL}/game?roomId=${roomId}`;
+        log(`连接到: ${wsUrl}`);
+        webSocket = new WebSocket(wsUrl);
+
+        webSocket.onopen = () => {
+            log('WebSocket连接成功!');
+            document.getElementById('ws-status').textContent = '已连接';
+            document.getElementById('ws-status').className = 'status-badge status-connected';
+            document.getElementById('quick-join-btn').disabled = true;
+        };
+
+        webSocket.onmessage = (event) => {
+            gameState = JSON.parse(event.data);
+            if (!myPlayerId && Object.keys(gameState.players).length > 0) {
+                // Heuristic to find my ID: the one that doesn't have a known ID yet.
+                // This is a simplification for the demo.
+                 const playerIds = Object.keys(gameState.players);
+                 myPlayerId = playerIds[playerIds.length - 1];
+                 document.getElementById('my-player-id').textContent = myPlayerId.substring(0, 8) + '...';
+            }
+        };
+        webSocket.onclose = () => {
+            log('WebSocket连接断开。', 'error');
+            document.getElementById('ws-status').textContent = '未连接';
+            document.getElementById('ws-status').className = 'status-badge status-disconnected';
+            document.getElementById('quick-join-btn').disabled = false;
+            myPlayerId = null;
+        };
+    }
+
+    // --- Input Handling ---
+    window.addEventListener('keydown', (e) => {
+        if (keys.hasOwnProperty(e.key.toLowerCase())) {
+            keys[e.key.toLowerCase()] = true;
+        }
+    });
+    window.addEventListener('keyup', (e) => {
+         if (keys.hasOwnProperty(e.key.toLowerCase())) {
+            keys[e.key.toLowerCase()] = false;
+        }
+    });
+
+    // Send commands to server at a fixed rate (client-side tick)
+    setInterval(() => {
+        if (!webSocket || webSocket.readyState !== WebSocket.OPEN) return;
+
+        let moveInput = 0;
+        if (keys.a) moveInput = -1;
+        if (keys.d) moveInput = 1;
+
+        let actions = 0;
+        if (keys.w || keys[' ']) actions |= 1; // Bit 0 for Jump
+        if (keys.j) actions |= 2;             // Bit 1 for Shoot
+
+        const command = {
+            moveInput: moveInput,
+            actions: actions
+        };
+        webSocket.send(JSON.stringify(command));
+        
+        // Reset single-press actions like jump and shoot
+        keys.w = false;
+        keys[' '] = false;
+        keys.j = false;
+
+    }, 50); // Send updates every 50ms (20Hz)
+
+    // --- Rendering Loop ---
+    function gameLoop() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Draw ground
+        ctx.fillStyle = '#785b40';
+        ctx.fillRect(0, 500, canvas.width, 100);
+
+        if (gameState.players) {
+            for (const playerId in gameState.players) {
+                const player = gameState.players[playerId];
+
+                // Set color based on whether it's "me" or another player
+                ctx.fillStyle = (playerId === myPlayerId) ? '#007bff' : '#dc3545';
+                
+                // Draw player rectangle
+                ctx.fillRect(player.x - 20, player.y - 40, 40, 40);
+
+                // Draw health bar
+                ctx.fillStyle = '#f00';
+                ctx.fillRect(player.x - 20, player.y - 55, 40, 5);
+                ctx.fillStyle = '#0f0';
+                ctx.fillRect(player.x - 20, player.y - 55, 40 * (player.health / 100), 5);
+                
+                // Draw player ID and action state
+                ctx.fillStyle = '#000';
+                ctx.font = '12px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(player.currentAction, player.x, player.y - 65);
+            }
+        }
+        
+        requestAnimationFrame(gameLoop);
+    }
+
+    gameLoop(); // Start the rendering loop
+</script>
+</body>
+</html>

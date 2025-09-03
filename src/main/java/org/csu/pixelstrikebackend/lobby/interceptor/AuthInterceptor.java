@@ -1,10 +1,10 @@
-package org.csu.pixelstrikebackend.interceptor;
+package org.csu.pixelstrikebackend.lobby.interceptor;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.csu.pixelstrikebackend.common.CommonResponse;
-import org.csu.pixelstrikebackend.util.JwtUtil;
+import org.csu.pixelstrikebackend.lobby.common.CommonResponse;
+import org.csu.pixelstrikebackend.lobby.util.JwtUtil;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 

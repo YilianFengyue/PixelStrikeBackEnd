@@ -2,7 +2,7 @@ package org.csu.pixelstrikebackend.dto;
 
 import lombok.Data;
 import org.csu.pixelstrikebackend.entity.UserProfile;
-import org.csu.pixelstrikebackend.enums.UserStatus;
+import org.csu.pixelstrikebackend.lobby.enums.UserStatus;
 
 @Data
 public class FriendDetailDTO {
