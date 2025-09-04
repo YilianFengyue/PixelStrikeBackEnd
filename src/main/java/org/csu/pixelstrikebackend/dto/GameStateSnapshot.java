@@ -61,7 +61,7 @@ public class GameStateSnapshot {
         public double x, y; // 事件发生的位置
         public String relatedPlayerId; // 与事件相关的玩家ID
         public enum EventType {
-            BULLET_IMPACT, EXPLOSION, PLAYER_HIT, PLAYER_DIED
+            BULLET_IMPACT, EXPLOSION, PLAYER_HIT, PLAYER_DIED,GAME_OVER
         }
     }
 

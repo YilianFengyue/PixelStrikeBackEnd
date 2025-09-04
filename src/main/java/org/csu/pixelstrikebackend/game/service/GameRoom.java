@@ -34,6 +34,13 @@ public class GameRoom implements Runnable {
     private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
     private final Queue<UserCommand> commandQueue = new ConcurrentLinkedQueue<>();
     private volatile boolean isRunning = true; // 控制循环是否继续
+    // 新增: 胜利条件
+    private static final int KILLS_TO_WIN = 5;
+
+    // 新增: 存储 sessionId -> userId 的映射
+    private final Map<String, Integer> sessionToUserIdMap = new ConcurrentHashMap<>();
+    // 新增: 存储 userId -> 战绩 的映射
+    private final Map<Integer, MatchParticipant> statistics = new ConcurrentHashMap<>();
 
     private final WebSocketBroadcastService broadcaster;
 
@@ -45,7 +52,7 @@ public class GameRoom implements Runnable {
         this.roomManager = roomManager; // 构造时传入
     }
 
-    public void addPlayer(WebSocketSession session) {
+    /*public void addPlayer(WebSocketSession session) {
         sessions.put(session.getId(), session);
         PlayerState initialState = new PlayerState();
         initialState.setPlayerId(session.getId());
@@ -56,7 +63,32 @@ public class GameRoom implements Runnable {
         playerStates.put(session.getId(), initialState);
         System.out.printf("Player %s joined room %s\n", session.getId(), roomId);
     }
-    
+    */
+
+    // 修改 addPlayer 方法以接收 userId
+    public void addPlayer(WebSocketSession session, Integer userId) {
+        sessions.put(session.getId(), session);
+        sessionToUserIdMap.put(session.getId(), userId); // 存映射关系
+
+        // 初始化玩家状态
+        PlayerState initialState = new PlayerState();
+        initialState.setPlayerId(session.getId());
+        initialState.setX(100); // 示例初始位置
+        initialState.setY(460); // 示例初始位置
+        initialState.setHealth(100);
+        initialState.setCurrentAction(PlayerState.PlayerActionState.IDLE);
+        playerStates.put(session.getId(), initialState);
+
+        // 初始化战绩统计
+        MatchParticipant participant = new MatchParticipant();
+        participant.setUserId(userId);
+        participant.setKills(0);
+        participant.setDeaths(0);
+        statistics.put(userId, participant);
+
+        System.out.printf("玩家 UserID:%d (Session:%s) 加入房间 %s\n", userId, session.getId(), roomId);
+    }
+
     public void removePlayer(WebSocketSession session) {
         sessions.remove(session.getId());
         playerStates.remove(session.getId());
@@ -130,6 +162,20 @@ public class GameRoom implements Runnable {
                             if (targetState.getHealth() <= 0) {
                                 targetState.setCurrentAction(PlayerState.PlayerActionState.DEAD);
                                 deadPlayerTimers.put(targetState.getPlayerId(), System.currentTimeMillis() + RESPAWN_TIME_MS);
+
+                                // --- 新增: 记录击杀和死亡 ---
+                                Integer attackerUserId = sessionToUserIdMap.get(attackerState.getPlayerId());
+                                Integer targetUserId = sessionToUserIdMap.get(targetState.getPlayerId());
+                                if(attackerUserId != null && targetUserId != null){
+                                    statistics.get(attackerUserId).setKills(statistics.get(attackerUserId).getKills() + 1);
+                                    statistics.get(targetUserId).setDeaths(statistics.get(targetUserId).getDeaths() + 1);
+
+                                    // --- 新增: 检查胜利条件 ---
+                                    if (statistics.get(attackerUserId).getKills() >= KILLS_TO_WIN) {
+                                        endGame(attackerUserId); // 游戏结束
+                                        break; // 结束当前tick的处理
+                                    }
+                                }
 
                                 GameEvent dieEvent = new GameEvent();
                                 dieEvent.setType(GameEvent.EventType.PLAYER_DIED);
@@ -234,6 +280,51 @@ public class GameRoom implements Runnable {
         }
         reportGameResults();
         System.out.printf("Game room %s has been shut down.\n", roomId);
+    }
+
+    // --- 新增: 游戏结束方法 ---
+    private void endGame(Integer winnerUserId) {
+        System.out.printf("游戏 %s 结束! 胜利者是 UserID: %d\n", roomId, winnerUserId);
+        this.isRunning = false; // 停止游戏循环
+
+        // 1. 整理最终战绩
+        List<MatchParticipant> finalResults = new ArrayList<>();
+        statistics.forEach((userId, participant) -> {
+            // 设置排名
+            participant.setRanking(userId.equals(winnerUserId) ? 1 : 2);
+            finalResults.add(participant);
+        });
+
+        // 2. 上报战绩
+        reportGameResults(finalResults);
+
+        // 3. 通知所有客户端游戏结束，并关闭连接
+        GameStateSnapshot finalSnapshot = new GameStateSnapshot();
+        finalSnapshot.setTickNumber(-1); // 使用特殊 tick 表示结束
+        GameEvent endEvent = new GameEvent();
+        endEvent.setType(GameEvent.EventType.GAME_OVER); // (需要在GameStateSnapshot中新增此类型)
+        endEvent.setRelatedPlayerId(winnerUserId.toString());
+        finalSnapshot.setEvents(List.of(endEvent));
+        broadcaster.broadcast(this.sessions.values(), finalSnapshot);
+
+        // 稍作延迟后关闭所有连接，确保结束消息能发出去
+        new Thread(() -> {
+            try {
+                Thread.sleep(1000); // 等待1秒
+                for(WebSocketSession session : sessions.values()){
+                    if(session.isOpen()){
+                        session.close();
+                    }
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }).start();
+    }
+
+    private void reportGameResults(List<MatchParticipant> results) {
+        Long gameId = Long.parseLong(this.roomId);
+        this.roomManager.onGameConcluded(gameId, results);
     }
 
     private void reportGameResults() {

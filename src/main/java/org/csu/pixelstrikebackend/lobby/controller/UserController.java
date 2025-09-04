@@ -10,6 +10,7 @@ import org.csu.pixelstrikebackend.lobby.mapper.UserProfileMapper;
 import org.csu.pixelstrikebackend.lobby.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/users") // 为所有接口添加 /users 前缀
@@ -28,13 +29,18 @@ public class UserController {
         return userService.resetPassword(request);
     }
 
-    /**
-     * 更新当前登录用户的个人信息 (需要认证)
-     */
-    @PutMapping("/me")
-    public CommonResponse<UserProfile> updateUserProfile(@Valid @RequestBody UpdateProfileRequest request, HttpServletRequest servletRequest) {
+    // 拆分后的接口 1: 更新昵称
+    @PutMapping("/me/nickname")
+    public CommonResponse<?> updateNickname(@RequestParam String newNickname, HttpServletRequest servletRequest) {
         Integer userId = (Integer) servletRequest.getAttribute("userId");
-        return userService.updateUserProfile(userId, request);
+        return userService.updateNickname(userId, newNickname);
+    }
+
+    // 拆分后的接口 2: 更新头像
+    @PostMapping("/me/avatar")
+    public CommonResponse<?> updateAvatar(@RequestParam("avatar") MultipartFile file, HttpServletRequest servletRequest) {
+        Integer userId = (Integer) servletRequest.getAttribute("userId");
+        return userService.updateAvatar(userId, file);
     }
 
     /**

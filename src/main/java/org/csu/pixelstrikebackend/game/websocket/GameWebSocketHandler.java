@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import org.csu.pixelstrikebackend.dto.UserCommand;
 import org.csu.pixelstrikebackend.game.service.GameRoom;
 import org.csu.pixelstrikebackend.game.service.GameRoomManager;
+import org.csu.pixelstrikebackend.lobby.util.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
@@ -14,6 +15,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.Map;
 
 @Component
 public class GameWebSocketHandler extends TextWebSocketHandler {
@@ -35,12 +37,20 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        String roomId = UriComponentsBuilder.fromUri(uri)
+        /*String roomId = UriComponentsBuilder.fromUri(uri)
                 .build()
                 .getQueryParams()
                 .getFirst("gameId");
+*/
+        Map<String, String> queryParams = UriComponentsBuilder.fromUri(uri)
+                .build()
+                .getQueryParams()
+                .toSingleValueMap();
 
-        if (roomId == null || roomId.trim().isEmpty()) {
+        String gameId = queryParams.get("gameId");
+        String token = queryParams.get("token"); // 2. 获取 token
+
+        if (gameId == null || gameId.trim().isEmpty()|| token == null) {
             System.err.println("Player connected without a roomId. Closing connection.");
             try {
                 session.close(); // 如果客户端没有提供roomId，则拒绝连接
@@ -49,9 +59,15 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
             }
             return;
         }
+        Integer userId = JwtUtil.verifyTokenAndGetUserId(token);
+        if (userId == null) {
+            System.err.println("Player connected with invalid token. Closing connection.");
+            try { session.close(); } catch (IOException e) { throw new RuntimeException(e); }
+            return;
+        }
 
         // 现在，我们不再负责创建房间，只负责将玩家加入GameRoomManager已知的房间
-        roomManager.addPlayerToRoom(roomId, session);
+        roomManager.addPlayerToRoom(gameId, session, userId);
     }
 
     @Override

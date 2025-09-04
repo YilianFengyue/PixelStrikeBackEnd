@@ -2,6 +2,7 @@ package org.csu.pixelstrikebackend.game.service;
 
 import org.csu.pixelstrikebackend.game.GameLobbyBridge;
 import org.csu.pixelstrikebackend.lobby.entity.MatchParticipant;
+import org.csu.pixelstrikebackend.lobby.service.MatchService;
 import org.csu.pixelstrikebackend.lobby.service.MatchmakingService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
@@ -24,12 +25,15 @@ public class GameRoomManager implements GameLobbyBridge {
     // 使用线程池来管理所有房间的线程
     private final ExecutorService roomExecutor = Executors.newCachedThreadPool();
     private final MatchmakingService matchmakingService;
+    private final MatchService matchService; // 新增注入
 
     // 使用构造器注入，并用@Lazy解决可能的循环依赖问题
-    public GameRoomManager(@Lazy MatchmakingService matchmakingService, WebSocketBroadcastService broadcaster) {
+    public GameRoomManager(@Lazy MatchmakingService matchmakingService, WebSocketBroadcastService broadcaster,MatchService matchService) {
         this.matchmakingService = matchmakingService;
         this.broadcaster = broadcaster;
+        this.matchService = matchService;
     }
+
 
     @Autowired
     private WebSocketBroadcastService broadcaster; // 注入广播服务
@@ -51,6 +55,8 @@ public class GameRoomManager implements GameLobbyBridge {
     @Override
     public void onGameConcluded(Long gameId, List<MatchParticipant> results) {
         System.out.println("游戏模块收到战绩: " + gameId + "，准备上报给大厅模块...");
+        // 直接调用 MatchService 处理
+        matchService.processMatchResults(gameId, results);
         // TODO: 调用大厅的服务来持久化数据
         // matchmakingService.processResults(gameId, results);
     }
@@ -65,10 +71,10 @@ public class GameRoomManager implements GameLobbyBridge {
         });
     }*/
 
-    public void addPlayerToRoom(String roomId, WebSocketSession session) {
+    public void addPlayerToRoom(String roomId, WebSocketSession session, Integer userId) {
         GameRoom room = activeRooms.get(roomId);
         if (room != null) {
-            room.addPlayer(session);
+            room.addPlayer(session, userId);
             playerToRoomMap.put(session.getId(), roomId);
         }
     }

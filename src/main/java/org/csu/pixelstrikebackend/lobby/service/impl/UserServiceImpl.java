@@ -8,12 +8,15 @@ import org.csu.pixelstrikebackend.lobby.entity.User;
 import org.csu.pixelstrikebackend.lobby.entity.UserProfile;
 import org.csu.pixelstrikebackend.lobby.mapper.UserMapper;
 import org.csu.pixelstrikebackend.lobby.mapper.UserProfileMapper;
+import org.csu.pixelstrikebackend.lobby.service.FileStorageService;
 import org.csu.pixelstrikebackend.lobby.service.OnlineUserService;
 import org.csu.pixelstrikebackend.lobby.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 @Service("userService")
 public class UserServiceImpl implements UserService {
@@ -29,6 +32,9 @@ public class UserServiceImpl implements UserService {
 
     @Autowired
     private OnlineUserService onlineUserService;
+
+    @Autowired
+    private FileStorageService fileStorageService; // 注入文件存储服务
 
     @Override
     public CommonResponse<?> resetPassword(ResetPasswordRequest request) {
@@ -51,27 +57,41 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    public CommonResponse<UserProfile> updateUserProfile(Integer userId, UpdateProfileRequest request) {
-        // 1. 查找用户的个人资料
+    public CommonResponse<?> updateNickname(Integer userId, String newNickname) {
         UserProfile userProfile = userProfileMapper.selectById(userId);
         if (userProfile == null) {
             return CommonResponse.createForError("用户资料不存在");
         }
-
-        // 2. 按需更新字段
-        if (request.getNickname() != null) {
-            userProfile.setNickname(request.getNickname());
+        // 校验昵称长度
+        if (newNickname == null || newNickname.length() < 2 || newNickname.length() > 20) {
+            return CommonResponse.createForError("昵称长度必须在2到20位之间");
         }
-        if (request.getAvatarUrl() != null) {
-            userProfile.setAvatarUrl(request.getAvatarUrl());
-        }
-
-        // 3. 保存更新
+        userProfile.setNickname(newNickname);
         userProfileMapper.updateById(userProfile);
-
-        return CommonResponse.createForSuccess("用户信息更新成功", userProfile);
+        return CommonResponse.createForSuccess("昵称更新成功", userProfile);
     }
 
+    @Override
+    public CommonResponse<?> updateAvatar(Integer userId, MultipartFile file) {
+        UserProfile userProfile = userProfileMapper.selectById(userId);
+        if (userProfile == null) {
+            return CommonResponse.createForError("用户资料不存在");
+        }
+        // 1. 存储文件
+        String fileName = fileStorageService.storeFile(file);
+
+        // 2. 生成可访问的URL
+        String fileDownloadUri = ServletUriComponentsBuilder.fromCurrentContextPath()
+                .path("/uploads/")
+                .path(fileName)
+                .toUriString();
+
+        // 3. 更新数据库
+        userProfile.setAvatarUrl(fileDownloadUri);
+        userProfileMapper.updateById(userProfile);
+
+        return CommonResponse.createForSuccess("头像上传成功", userProfile);
+    }
     @Override
     @Transactional
     public CommonResponse<?> deleteAccount(Integer userId) {
