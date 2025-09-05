@@ -35,7 +35,7 @@ public class CombatSystem {
         target.setHealth(target.getHealth() - WEAPON_DAMAGE);
         target.setCurrentAction(PlayerState.PlayerActionState.HIT);
 
-        double knockbackStrength = 25.0;
+        double knockbackStrength = 5.0;
         target.setVelocityX(target.getVelocityX() + (attacker.isFacingRight() ? knockbackStrength : -knockbackStrength));
         target.setVelocityY(target.getVelocityY() - 10.0);
 

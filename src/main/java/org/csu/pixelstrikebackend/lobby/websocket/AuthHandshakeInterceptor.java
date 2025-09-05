@@ -6,6 +6,7 @@ import org.springframework.http.server.ServerHttpResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.server.HandshakeInterceptor;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.Map;
 
@@ -14,19 +15,24 @@ public class AuthHandshakeInterceptor implements HandshakeInterceptor {
 
     @Override
     public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response,
-                                   WebSocketHandler wsHandler, Map<String, Object> attributes) throws Exception {
+                                   WebSocketHandler wsHandler,
+                                   Map<String, Object> attributes) throws Exception{
         // 从 URL 查询参数中获取 token, 例如: ws://localhost:8080/ws?token=xxxx
-        String query = request.getURI().getQuery();
-        if (query != null && query.startsWith("token=")) {
-            String token = query.substring(6);
+        String token = UriComponentsBuilder.fromUri(request.getURI())
+                .build()
+                .getQueryParams()
+                .getFirst("token");
+
+        if (token != null) {
             Integer userId = JwtUtil.verifyTokenAndGetUserId(token);
             if (userId != null) {
                 // 验证成功, 将 userId 放入 WebSocket session 的 attributes 中
                 attributes.put("userId", userId);
                 System.out.println("Handshake successful for user: " + userId);
-                return true;
+                return true; // 允许连接
             }
         }
+
         // 验证失败，拒绝连接
         System.out.println("Handshake failed: Invalid or missing token.");
         return false;

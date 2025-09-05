@@ -305,10 +305,7 @@ import org.csu.pixelstrikebackend.dto.GameStateSnapshot;
 import org.csu.pixelstrikebackend.dto.GameStateSnapshot.GameEvent;
 import org.csu.pixelstrikebackend.dto.PlayerState;
 import org.csu.pixelstrikebackend.dto.UserCommand;
-import org.csu.pixelstrikebackend.game.system.CombatSystem;
-import org.csu.pixelstrikebackend.game.system.GameStateSystem;
-import org.csu.pixelstrikebackend.game.system.InputSystem;
-import org.csu.pixelstrikebackend.game.system.PhysicsSystem;
+import org.csu.pixelstrikebackend.game.system.*;
 import org.csu.pixelstrikebackend.lobby.entity.MatchParticipant;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
@@ -325,6 +322,7 @@ public class GameRoom implements Runnable {
     private final CombatSystem combatSystem;
     private final PhysicsSystem physicsSystem;
     private final GameStateSystem gameStateSystem;
+    private final GameConditionSystem gameConditionSystem;
     private final WebSocketBroadcastService broadcaster;
     private final GameRoomManager roomManager;
 
@@ -334,22 +332,35 @@ public class GameRoom implements Runnable {
     private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
     private final Queue<UserCommand> commandQueue = new ConcurrentLinkedQueue<>();
     private final Map<String, Long> deadPlayerTimers = new ConcurrentHashMap<>();
+    private final Map<String, Integer> sessionToUserIdMap = new ConcurrentHashMap<>();
     private volatile boolean isRunning = true;
+    private final long gameStartTime;
 
     private final Gson gson = new Gson();
 
-    public GameRoom(String roomId, GameRoomManager roomManager, InputSystem inputSystem, CombatSystem combatSystem, PhysicsSystem physicsSystem, GameStateSystem gameStateSystem, WebSocketBroadcastService broadcaster) {
+    public GameRoom(String roomId,
+                    GameRoomManager roomManager,
+                    InputSystem inputSystem,
+                    CombatSystem combatSystem,
+                    PhysicsSystem physicsSystem,
+                    GameStateSystem gameStateSystem,
+                    GameConditionSystem gameConditionSystem,
+                    WebSocketBroadcastService broadcaster,
+                    List<Integer> playerIds) {
         this.roomId = roomId;
         this.roomManager = roomManager;
         this.inputSystem = inputSystem;
         this.combatSystem = combatSystem;
         this.physicsSystem = physicsSystem;
         this.gameStateSystem = gameStateSystem;
+        this.gameConditionSystem = gameConditionSystem;
         this.broadcaster = broadcaster;
+        this.gameStartTime = System.currentTimeMillis();
     }
 
-    public void addPlayer(WebSocketSession session) {
+    public void addPlayer(WebSocketSession session, Integer userId) {
         sessions.put(session.getId(), session);
+        sessionToUserIdMap.put(session.getId(), userId);
         PlayerState initialState = new PlayerState();
         initialState.setPlayerId(session.getId());
         initialState.setX(100);
@@ -413,10 +424,15 @@ public class GameRoom implements Runnable {
             // 4. 更新游戏状态 (复活等)
             gameStateSystem.update(playerStates, deadPlayerTimers);
 
-            // 5. 广播快照
+            // 5. 检查游戏是否结束
+            if (gameConditionSystem.shouldGameEnd(playerStates, gameStartTime)) {
+                this.stop(); // 触发游戏结束
+            }
+
+            // 6. 广播快照
             broadcastSnapshot(tickNumber, currentTickEvents);
 
-            // 6. 控制Tick率
+            // 7. 控制Tick率
             nextGameTick += SKIP_TICKS;
             long sleepTime = nextGameTick - System.currentTimeMillis();
             if (sleepTime >= 0) {
@@ -442,8 +458,16 @@ public class GameRoom implements Runnable {
 
     private void reportGameResults() {
         List<MatchParticipant> results = new ArrayList<>();
-        // TODO: 填充战绩
-        Long gameId = Long.parseLong(this.roomId);
-        this.roomManager.onGameConcluded(gameId, results);
+        for (PlayerState playerState : playerStates.values()) {
+            MatchParticipant participant = new MatchParticipant();
+            participant.setMatchId(Long.parseLong(this.roomId));
+            participant.setUserId(sessionToUserIdMap.get(playerState.getPlayerId()));
+            participant.setKills(playerState.getKills());
+            participant.setDeaths(playerState.getDeaths());
+            // TODO: 计算排名
+            results.add(participant);
+        }
+
+        this.roomManager.onGameConcluded(Long.parseLong(this.roomId), results);
     }
 }

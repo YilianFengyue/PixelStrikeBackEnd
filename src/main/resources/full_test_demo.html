@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>PixelStrike 全功能测试台 (已修复)</title>
+    <title>PixelStrike 全功能测试台 (v3)</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; justify-content: center; align-items: flex-start; padding: 20px; background-color: #f4f7f9; gap: 20px; }
         .panel { background-color: #ffffff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); padding: 25px; }
@@ -26,6 +26,10 @@
         .friend-status { font-size: 12px; padding: 3px 8px; border-radius: 10px; color: white; }
         .status-ONLINE { background-color: #28a745; } .status-OFFLINE { background-color: #6c757d; } .status-IN_GAME { background-color: #ffc107; color: #000 } .status-MATCHING { background-color: #17a2b8; }
         #hud { position: absolute; top: 10px; left: 10px; color: white; font-size: 20px; font-weight: bold; text-shadow: 2px 2px 4px #000; }
+        #results-container { margin-top: 15px; }
+        .results-table { width: 100%; border-collapse: collapse; }
+        .results-table th, .results-table td { border: 1px solid #ddd; padding: 8px; text-align: left;}
+        .results-table th { background-color: #f2f2f2; }
     </style>
 </head>
 <body>
@@ -42,6 +46,7 @@
         <p>已登录: <b id="current-user"></b></p>
         <button id="start-match-btn" onclick="startMatchmaking()">开始匹配</button>
         <button id="cancel-match-btn" onclick="cancelMatchmaking()" disabled>取消匹配</button>
+        <button id="fetch-results-btn" onclick="fetchMatchResults()" disabled>查询上局战绩</button>
         <div style="margin-top: 20px;">
             <h3>操作说明:</h3>
             <p><b>A / D</b>: 左右移动 | <b>W / 空格</b>: 跳跃 | <b>J</b>: 开火</p>
@@ -55,6 +60,7 @@
     <div id="hud"></div>
 </div>
 
+
 <div class="panel" style="min-width: 400px;">
     <h2>大厅信息</h2>
     <p>大厅连接状态: <span id="lobby-ws-status" class="status-badge status-disconnected">未连接</span></p>
@@ -62,9 +68,14 @@
         <h3>好友列表</h3>
         <ul id="friend-list" class="friend-list"></ul>
     </div>
+    <div id="results-section" style="display: none;">
+        <h3 id="results-title">对局战绩</h3>
+        <div id="results-container"></div>
+    </div>
     <h2>日志输出</h2>
     <div class="log-container" id="log-container"></div>
 </div>
+
 
 <script>
     const API_BASE_URL = 'http://localhost:8080';
@@ -73,7 +84,7 @@
     let authToken = null;
     let lobbySocket = null, gameSocket = null;
     let myPlayerId = null;
-    // let knownPlayerIds = new Set(); // 用于辅助识别自己的ID
+    let lastGameId = null;
 
     let gameState = { players: {} };
     const keys = { a: false, d: false, w: false, " ": false, j: false };
@@ -134,6 +145,7 @@
             switch(msg.type) {
                 case 'match_success':
                     log(`<b>匹配成功!</b> 准备进入游戏...`, 'success');
+                    lastGameId = msg.gameId;
                     connectGameWebSocket(msg.gameId);
                     document.getElementById('start-match-btn').disabled = false;
                     document.getElementById('cancel-match-btn').disabled = true;
@@ -223,12 +235,50 @@
             gameState = msg;
         };
         gameSocket.onclose = () => {
-            log('游戏连接断开。', 'error');
+            log('游戏连接断开 (游戏结束)。', 'error');
             myPlayerId = null;
-            // knownPlayerIds.clear();
             gameState = { players: {} };
+            // 游戏结束后，启用“查询战绩”按钮
+            if (lastGameId) {
+                document.getElementById('fetch-results-btn').disabled = false;
+            }
         };
     }
+
+    // 查询战绩的函数
+    async function fetchMatchResults() {
+        if (!lastGameId) {
+            log('没有可查询的上局游戏ID。', 'error');
+            return;
+        }
+        log(`正在查询游戏 [${lastGameId}] 的战绩...`);
+        try {
+            const response = await fetch(`${API_BASE_URL}/matches/${lastGameId}/results`, {
+                headers: { 'Authorization': `Bearer ${authToken}` } // 假设未来需要认证
+            });
+            const result = await response.json();
+
+            if (result.status === 0) {
+                log('战绩查询成功!', 'success');
+                const resultsContainer = document.getElementById('results-container');
+                let tableHTML = '<table class="results-table"><tr><th>玩家昵称</th><th>击杀</th><th>死亡</th></tr>';
+                result.data.forEach(p => {
+                    tableHTML += `<tr><td>${p.nickname}</td><td>${p.kills}</td><td>${p.deaths}</td></tr>`;
+                });
+                tableHTML += '</table>';
+                resultsContainer.innerHTML = tableHTML;
+                document.getElementById('results-section').style.display = 'block';
+                document.getElementById('results-title').innerText = `对局 [${lastGameId}] 战绩`;
+            } else {
+                throw new Error(result.message);
+            }
+        } catch (error) {
+            log(`查询战绩失败: ${error.message}`, 'error');
+            document.getElementById('results-container').innerHTML = `<p style="color:red;">查询失败</p>`;
+            document.getElementById('results-section').style.display = 'block';
+        }
+    }
+
 
     // --- 4. 客户端输入与渲染 ---
     window.addEventListener('keydown', (e) => { if (keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = true; });
