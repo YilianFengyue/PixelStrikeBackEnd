@@ -10,8 +10,8 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/pixelstrike #?servierTimezone=UTC
     username: root
-    password: 1234
-#    password: abcABC369258
+#    password: 1234
+    password: abcABC369258
   servlet:
     multipart:
       enabled: true

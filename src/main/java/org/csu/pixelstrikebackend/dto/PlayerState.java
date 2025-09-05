@@ -19,8 +19,20 @@ public class PlayerState {
     private int health;
     private int currentWeaponId;
 
-    // 当前武器的剩余弹药。
+    /**
+     * 当前武器的剩余弹药。
+     */
     private int ammo;
+
+    /**
+     * 本局游戏中的击杀数。
+     */
+    private int kills = 0;
+
+    /**
+     * 本局游戏中的死亡数。
+     */
+    private int deaths = 0;
 
     /**
      * 角色是否朝向右边。
@@ -47,6 +59,8 @@ public class PlayerState {
         this.health = original.health;
         this.currentWeaponId = original.currentWeaponId;
         this.ammo = original.ammo;
+        this.kills = original.kills;
+        this.deaths = original.deaths;
         this.isFacingRight = original.isFacingRight;
         this.currentAction = original.currentAction;
         this.canDoubleJump = original.canDoubleJump;

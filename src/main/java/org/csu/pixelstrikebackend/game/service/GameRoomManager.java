@@ -1,6 +1,10 @@
 package org.csu.pixelstrikebackend.game.service;
 
 import org.csu.pixelstrikebackend.game.GameLobbyBridge;
+import org.csu.pixelstrikebackend.game.system.CombatSystem;
+import org.csu.pixelstrikebackend.game.system.GameStateSystem;
+import org.csu.pixelstrikebackend.game.system.InputSystem;
+import org.csu.pixelstrikebackend.game.system.PhysicsSystem;
 import org.csu.pixelstrikebackend.lobby.entity.MatchParticipant;
 import org.csu.pixelstrikebackend.lobby.service.MatchmakingService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,6 +27,9 @@ public class GameRoomManager implements GameLobbyBridge {
     
     // 使用线程池来管理所有房间的线程
     private final ExecutorService roomExecutor = Executors.newCachedThreadPool();
+
+
+
     private final MatchmakingService matchmakingService;
 
     // 使用构造器注入，并用@Lazy解决可能的循环依赖问题
@@ -34,6 +41,11 @@ public class GameRoomManager implements GameLobbyBridge {
     @Autowired
     private WebSocketBroadcastService broadcaster; // 注入广播服务
 
+    @Autowired private InputSystem inputSystem;
+    @Autowired private CombatSystem combatSystem;
+    @Autowired private PhysicsSystem physicsSystem;
+    @Autowired private GameStateSystem gameStateSystem;
+
     // --- 实现桥接接口的方法 ---
     @Override
     public void onMatchSuccess(Long gameId, List<Integer> playerIds) {
@@ -42,7 +54,7 @@ public class GameRoomManager implements GameLobbyBridge {
 
         // 这部分逻辑和之前的 createAndStartRoom 类似
         activeRooms.computeIfAbsent(roomId, id -> {
-            GameRoom newRoom = new GameRoom(id, broadcaster, this); // 把自己传进去
+            GameRoom newRoom = new GameRoom(id, this, inputSystem, combatSystem, physicsSystem, gameStateSystem, broadcaster); // 把自己传进去
             roomExecutor.submit(newRoom);
             return newRoom;
         });
