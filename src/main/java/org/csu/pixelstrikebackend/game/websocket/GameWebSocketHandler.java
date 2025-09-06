@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -52,8 +53,12 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        // 现在，我们不再负责创建房间，只负责将玩家加入GameRoomManager已知的房间
-        roomManager.addPlayerToRoom(roomId, session);
+        // 创建一个线程安全的 session 装饰器实例
+        // 参数：原始session, 发送超时时间(ms), 发送缓冲区大小(bytes)
+        ConcurrentWebSocketSessionDecorator concurrentSession = new ConcurrentWebSocketSessionDecorator(session, 2000, 1024 * 512);
+
+        // 将包装后的 session 交给 RoomManager
+        roomManager.addPlayerToRoom(roomId, concurrentSession);
     }
 
     @Override
@@ -93,6 +98,10 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
+        // 增加日志，打印关闭状态码和原因
+        System.out.println("Connection closed for session: " + session.getId() +
+                ", Status: " + status.getCode() +
+                ", Reason: " + status.getReason());
         roomManager.removePlayerFromRoom(session);
     }
 }

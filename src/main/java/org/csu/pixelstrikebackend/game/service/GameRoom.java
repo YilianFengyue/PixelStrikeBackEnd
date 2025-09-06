@@ -129,41 +129,47 @@ public class GameRoom implements Runnable {
         long tickNumber = 0;
 
         while (isRunning) {
-            tickNumber++;
-            List<GameEvent> currentTickEvents = new ArrayList<>();
-            GameStateSnapshot snapshot = new GameStateSnapshot(); // 在循环开始时创建snapshot
+            try {
+                tickNumber++;
+                List<GameEvent> currentTickEvents = new ArrayList<>();
+                GameStateSnapshot snapshot = new GameStateSnapshot(); // 在循环开始时创建snapshot
 
-            // --- 使用状态机 ---
-            if (currentPhase == RoomPhase.COUNTDOWN) {
-                boolean countdownFinished = gameCountdownSystem.update(countdownRoomState, snapshot);
-                if (countdownFinished) {
-                    currentPhase = RoomPhase.RUNNING;
+                // --- 使用状态机 ---
+                if (currentPhase == RoomPhase.COUNTDOWN) {
+                    boolean countdownFinished = gameCountdownSystem.update(countdownRoomState, snapshot);
+                    if (countdownFinished) {
+                        currentPhase = RoomPhase.RUNNING;
+                    }
+                } else if (currentPhase == RoomPhase.RUNNING) {
+                    gameTimerSystem.update(snapshot, gameStartTime);
+                    inputSystem.processCommands(commandQueue, playerStates);
+                    combatSystem.update(playerStates, currentTickEvents);
+                    physicsSystem.update(playerStates, currentTickEvents);
+                    gameStateSystem.update(playerStates, deadPlayerTimers);
+
+                    if (gameConditionSystem.shouldGameEnd(playerStates, gameStartTime)) {
+                        currentPhase = RoomPhase.CONCLUDED;
+                        this.stop();
+                    }
                 }
-            } else if (currentPhase == RoomPhase.RUNNING) {
-                gameTimerSystem.update(snapshot, gameStartTime);
-                inputSystem.processCommands(commandQueue, playerStates);
-                combatSystem.update(playerStates, currentTickEvents);
-                physicsSystem.update(playerStates, currentTickEvents);
-                gameStateSystem.update(playerStates, deadPlayerTimers);
 
-                if (gameConditionSystem.shouldGameEnd(playerStates, gameStartTime)) {
-                    currentPhase = RoomPhase.CONCLUDED;
-                    this.stop();
-                }
-            }
+                broadcastSnapshot(tickNumber, currentTickEvents, snapshot); // 【修复】传递snapshot
 
-            broadcastSnapshot(tickNumber, currentTickEvents, snapshot); // 【修复】传递snapshot
-
-            // 控制Tick率
-            nextGameTick += SKIP_TICKS;
-            long sleepTime = nextGameTick - System.currentTimeMillis();
-            if (sleepTime >= 0) {
-                try {
+                // 控制Tick率
+                nextGameTick += SKIP_TICKS;
+                long sleepTime = nextGameTick - System.currentTimeMillis();
+                if (sleepTime >= 0) {
                     Thread.sleep(sleepTime);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    isRunning = false;
                 }
+            } catch (InterruptedException e) { // <--- 捕获中断异常
+                Thread.currentThread().interrupt();
+                isRunning = false;
+                System.err.println("Game room " + roomId + " thread was interrupted.");
+            } catch (Exception e) { // <--- 捕获所有其他异常
+                // 关键：打印错误日志，但不要让线程死掉！
+                System.err.println("!!!!!! An error occurred in game loop for room " + roomId + " !!!!!!");
+                e.printStackTrace();
+                // 循环会继续，游戏房间不会因此崩溃
             }
         }
         reportGameResults();
