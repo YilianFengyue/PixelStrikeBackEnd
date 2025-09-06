@@ -1,17 +1,17 @@
 /*
- Navicat Premium Dump SQL
+ Navicat Premium Data Transfer
 
- Source Server         : local-mysql
+ Source Server         : localhost_3306
  Source Server Type    : MySQL
- Source Server Version : 80040 (8.0.40)
+ Source Server Version : 80042 (8.0.42)
  Source Host           : localhost:3306
  Source Schema         : pixelstrike
 
  Target Server Type    : MySQL
- Target Server Version : 80040 (8.0.40)
+ Target Server Version : 80042 (8.0.42)
  File Encoding         : 65001
 
- Date: 03/09/2025 08:29:36
+ Date: 06/09/2025 22:47:44
 */
 
 SET NAMES utf8mb4;
@@ -42,12 +42,13 @@ CREATE TABLE `match_participants`  (
   `user_id` bigint NULL DEFAULT NULL,
   `kills` int NOT NULL DEFAULT 0 COMMENT '击杀数',
   `deaths` int NOT NULL DEFAULT 0 COMMENT '死亡数',
+  `ranking` int NULL DEFAULT NULL COMMENT '本局排名',
   PRIMARY KEY (`id`) USING BTREE,
   INDEX `idx_match_participants_match_id`(`match_id` ASC) USING BTREE,
   INDEX `idx_match_participants_user_id`(`user_id` ASC) USING BTREE,
   CONSTRAINT `fk_match_participants_matches` FOREIGN KEY (`match_id`) REFERENCES `matches` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT,
   CONSTRAINT `fk_match_participants_users` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = DYNAMIC;
+) ENGINE = InnoDB AUTO_INCREMENT = 39 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for matches
@@ -59,10 +60,9 @@ CREATE TABLE `matches`  (
   `map_name` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '	地图名称',
   `start_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `end_time` timestamp NULL DEFAULT NULL,
-  `ranking` int NULL DEFAULT NULL COMMENT '对战的名次',
   PRIMARY KEY (`id`) USING BTREE,
   INDEX `idx_matches_game_mode`(`game_mode` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = DYNAMIC;
+) ENGINE = InnoDB AUTO_INCREMENT = 45 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for user_profiles
@@ -94,6 +94,6 @@ CREATE TABLE `users`  (
   UNIQUE INDEX `email`(`email` ASC) USING BTREE,
   INDEX `idx_users_username`(`username` ASC) USING BTREE,
   INDEX `idx_users_email`(`email` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 6 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = DYNAMIC;
+) ENGINE = InnoDB AUTO_INCREMENT = 11 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = DYNAMIC;
 
 SET FOREIGN_KEY_CHECKS = 1;
