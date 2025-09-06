@@ -24,6 +24,7 @@ public class GameRoom implements Runnable {
     private final PhysicsSystem physicsSystem;
     private final GameStateSystem gameStateSystem;
     private final GameConditionSystem gameConditionSystem;
+    private final GameCountdownSystem gameCountdownSystem;
     private final WebSocketBroadcastService broadcaster;
     private final GameRoomManager roomManager;
 
@@ -36,6 +37,11 @@ public class GameRoom implements Runnable {
     private final Map<String, Integer> sessionToUserIdMap = new ConcurrentHashMap<>();
     private volatile boolean isRunning = true;
     private final long gameStartTime;
+    private final int expectedPlayerCount;
+    private final GameCountdownSystem.RoomState countdownRoomState;
+
+    private enum RoomPhase { WAITING_FOR_PLAYERS, COUNTDOWN, RUNNING, CONCLUDED }
+    private RoomPhase currentPhase = RoomPhase.WAITING_FOR_PLAYERS;
 
     private final Gson gson = new Gson();
 
@@ -46,6 +52,7 @@ public class GameRoom implements Runnable {
                     PhysicsSystem physicsSystem,
                     GameStateSystem gameStateSystem,
                     GameConditionSystem gameConditionSystem,
+                    GameCountdownSystem gameCountdownSystem,
                     WebSocketBroadcastService broadcaster,
                     List<Integer> playerIds) {
         this.roomId = roomId;
@@ -55,8 +62,11 @@ public class GameRoom implements Runnable {
         this.physicsSystem = physicsSystem;
         this.gameStateSystem = gameStateSystem;
         this.gameConditionSystem = gameConditionSystem;
+        this.gameCountdownSystem = gameCountdownSystem;
         this.broadcaster = broadcaster;
         this.gameStartTime = System.currentTimeMillis();
+        this.expectedPlayerCount = playerIds.size();
+        this.countdownRoomState = new GameCountdownSystem.RoomState(roomId);
     }
 
     public void addPlayer(WebSocketSession session, Integer userId) {
@@ -72,8 +82,14 @@ public class GameRoom implements Runnable {
         initialState.setDeaths(0);
         initialState.setCurrentAction(PlayerState.PlayerActionState.IDLE);
         playerStates.put(session.getId(), initialState);
-        System.out.printf("Player %s joined room %s\n", session.getId(), roomId);
+        System.out.printf("Player %s (userId: %d) joined room %s\n", session.getId(), userId, roomId);
         sendWelcomeMessage(session);
+
+        // 当所有预期玩家都加入后，开始倒计时
+        if (sessions.size() == expectedPlayerCount) {
+            this.currentPhase = RoomPhase.COUNTDOWN;
+            System.out.println("玩家已满，房间 " + roomId + " 进入倒计时阶段...");
+        }
     }
 
     private void sendWelcomeMessage(WebSocketSession session) {
@@ -112,28 +128,29 @@ public class GameRoom implements Runnable {
         while (isRunning) {
             tickNumber++;
             List<GameEvent> currentTickEvents = new ArrayList<>();
+            GameStateSnapshot snapshot = new GameStateSnapshot(); // 【修复】在循环开始时创建snapshot
 
-            // 1. 处理输入
-            inputSystem.processCommands(commandQueue, playerStates);
+            // --- 使用状态机 ---
+            if (currentPhase == RoomPhase.COUNTDOWN) {
+                boolean countdownFinished = gameCountdownSystem.update(countdownRoomState, snapshot);
+                if (countdownFinished) {
+                    currentPhase = RoomPhase.RUNNING;
+                }
+            } else if (currentPhase == RoomPhase.RUNNING) {
+                inputSystem.processCommands(commandQueue, playerStates);
+                combatSystem.update(playerStates, currentTickEvents);
+                physicsSystem.update(playerStates, currentTickEvents);
+                gameStateSystem.update(playerStates, deadPlayerTimers);
 
-            // 2. 处理战斗
-            combatSystem.update(playerStates, currentTickEvents);
-
-            // 3. 更新物理
-            physicsSystem.update(playerStates, currentTickEvents);
-
-            // 4. 更新游戏状态 (复活等)
-            gameStateSystem.update(playerStates, deadPlayerTimers);
-
-            // 5. 检查游戏是否结束
-            if (gameConditionSystem.shouldGameEnd(playerStates, gameStartTime)) {
-                this.stop(); // 触发游戏结束
+                if (gameConditionSystem.shouldGameEnd(playerStates, gameStartTime)) {
+                    currentPhase = RoomPhase.CONCLUDED;
+                    this.stop();
+                }
             }
 
-            // 6. 广播快照
-            broadcastSnapshot(tickNumber, currentTickEvents);
+            broadcastSnapshot(tickNumber, currentTickEvents, snapshot); // 【修复】传递snapshot
 
-            // 7. 控制Tick率
+            // 控制Tick率
             nextGameTick += SKIP_TICKS;
             long sleepTime = nextGameTick - System.currentTimeMillis();
             if (sleepTime >= 0) {
@@ -148,6 +165,13 @@ public class GameRoom implements Runnable {
         reportGameResults();
         notifyAndCloseConnections();
         System.out.printf("Game room %s has been shut down.\n", roomId);
+    }
+
+    private void broadcastSnapshot(long tickNumber, List<GameEvent> events, GameStateSnapshot snapshot) {
+        snapshot.setTickNumber(tickNumber);
+        snapshot.setPlayers(new ConcurrentHashMap<>(playerStates));
+        snapshot.setEvents(events);
+        broadcaster.broadcast(this.sessions.values(), snapshot);
     }
 
     private void notifyAndCloseConnections() {
@@ -168,23 +192,29 @@ public class GameRoom implements Runnable {
         }
     }
 
-    private void broadcastSnapshot(long tickNumber, List<GameEvent> events) {
-        GameStateSnapshot snapshot = new GameStateSnapshot();
-        snapshot.setTickNumber(tickNumber);
-        snapshot.setPlayers(new ConcurrentHashMap<>(playerStates));
-        snapshot.setEvents(events);
-        broadcaster.broadcast(this.sessions.values(), snapshot);
-    }
 
     private void reportGameResults() {
+        // 1. 将所有玩家状态转为列表并按击杀数排序
+        List<PlayerState> sortedPlayers = new ArrayList<>(playerStates.values());
+        // 击杀多者在前，死亡少者在前
+        sortedPlayers.sort((p1, p2) -> {
+            int killComparison = Integer.compare(p2.getKills(), p1.getKills());
+            if (killComparison != 0) {
+                return killComparison;
+            }
+            return Integer.compare(p1.getDeaths(), p2.getDeaths());
+        });
+
+        // 2. 收集战绩并赋予排名
         List<MatchParticipant> results = new ArrayList<>();
-        for (PlayerState playerState : playerStates.values()) {
+        for (int i = 0; i < sortedPlayers.size(); i++) {
+            PlayerState playerState = sortedPlayers.get(i);
             MatchParticipant participant = new MatchParticipant();
             participant.setMatchId(Long.parseLong(this.roomId));
             participant.setUserId(sessionToUserIdMap.get(playerState.getPlayerId()));
             participant.setKills(playerState.getKills());
             participant.setDeaths(playerState.getDeaths());
-            // TODO: 计算排名
+            participant.setRanking(i + 1); // 设置排名
             results.add(participant);
         }
 

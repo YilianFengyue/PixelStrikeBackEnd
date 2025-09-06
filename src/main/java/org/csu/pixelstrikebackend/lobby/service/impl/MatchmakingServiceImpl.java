@@ -214,13 +214,24 @@ public class MatchmakingServiceImpl implements MatchmakingService {
     }
 
     @Override
-    @Transactional // 确保数据库操作的原子性
+    @Transactional
     public void processGameResults(Long gameId, List<MatchParticipant> results) {
         System.out.println("大厅模块正在处理战绩，游戏ID: " + gameId);
 
-        // 1. 批量插入参与者战绩
+        // 1. 批量插入参与者战绩并更新玩家总战绩
         for (MatchParticipant result : results) {
             matchParticipantMapper.insert(result);
+
+            // 【新增】更新UserProfile
+            UserProfile profile = userProfileMapper.selectById(result.getUserId());
+            if (profile != null) {
+                profile.setTotalMatches(profile.getTotalMatches() + 1);
+                // 如果排名第一，则胜利场次+1
+                if (result.getRanking() != null && result.getRanking() == 1) {
+                    profile.setWins(profile.getWins() + 1);
+                }
+                userProfileMapper.updateById(profile);
+            }
         }
 
         // 2. 更新对局表的结束时间
@@ -229,7 +240,6 @@ public class MatchmakingServiceImpl implements MatchmakingService {
             match.setEndTime(LocalDateTime.now());
             matchMapper.updateById(match);
         }
-
         System.out.println("战绩处理完毕并已存入数据库。");
     }
 }

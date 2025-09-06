@@ -38,6 +38,7 @@ public class GameStateSnapshot {
      * 这比让客户端通过状态变化去“猜测”发生了什么要高效和准确得多。
      */
     private List<GameEvent> events;
+    private Integer countdownSeconds;
 
     // --- 嵌套的子DTOs ---
 

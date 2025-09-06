@@ -43,6 +43,7 @@ public class GameRoomManager implements GameLobbyBridge {
     @Autowired private PhysicsSystem physicsSystem;
     @Autowired private GameStateSystem gameStateSystem;
     @Autowired private GameConditionSystem gameConditionSystem;
+    @Autowired private GameCountdownSystem gameCountdownSystem;
 
     // --- 实现桥接接口的方法 ---
     @Override
@@ -50,10 +51,12 @@ public class GameRoomManager implements GameLobbyBridge {
         String roomId = gameId.toString();
         System.out.println("游戏模块收到通知: 创建房间 " + roomId);
 
-        // 这部分逻辑和之前的 createAndStartRoom 类似
         activeRooms.computeIfAbsent(roomId, id -> {
-            // 【修改】创建GameRoom时，将所有依赖注入，包括新的gameConditionSystem
-            GameRoom newRoom = new GameRoom(id, this, inputSystem, combatSystem, physicsSystem, gameStateSystem, gameConditionSystem, broadcaster, playerIds);
+            // 创建GameRoom时，将所有依赖（包括新的gameCountdownSystem）按正确顺序传入
+            GameRoom newRoom = new GameRoom(id, this,
+                    inputSystem, combatSystem, physicsSystem,
+                    gameStateSystem, gameConditionSystem, gameCountdownSystem,
+                    broadcaster, playerIds);
             roomExecutor.submit(newRoom);
             return newRoom;
         });
