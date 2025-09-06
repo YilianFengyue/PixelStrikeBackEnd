@@ -21,6 +21,7 @@ public class PlayerState {
     private int ammo; //当前武器的剩余弹药
     private int kills = 0; // 本局游戏中的击杀数
     private int deaths = 0; //本局游戏中的死亡数。
+    private int ping = 0; // 玩家的网络延迟(ms)
     private boolean isFacingRight; // 角色是否朝向右边，是否翻转精灵图。
 
     /**

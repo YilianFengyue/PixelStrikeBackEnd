@@ -7,11 +7,12 @@ import org.csu.pixelstrikebackend.lobby.dto.FriendListDTO;
 import java.util.List;
 
 public interface FriendService {
-    // ... (其他方法保持不变)
+
     CommonResponse<List<FriendListDTO>> searchUsersByNickname(String nickname, Integer currentUserId);
     CommonResponse<?> sendFriendRequest(Integer senderId, Integer addrId);
     CommonResponse<List<FriendListDTO>> getPendingRequests(Integer userId);
     CommonResponse<?> acceptFriendRequest(Integer userId, Integer senderId);
+    CommonResponse<?> rejectFriendRequest(Integer userId, Integer senderId);
     CommonResponse<?> deleteFriend(Integer userId, Integer friendId);
 
     // 接口 1: 获取好友列表 (只返回基本资料)

@@ -1,0 +1,123 @@
+package org.csu.pixelstrikebackend.lobby.service.impl;
+
+import org.csu.pixelstrikebackend.game.GameLobbyBridge;
+import org.csu.pixelstrikebackend.lobby.common.CommonResponse;
+import org.csu.pixelstrikebackend.lobby.entity.Match;
+import org.csu.pixelstrikebackend.lobby.entity.MatchmakingRoom; // 复用该实体
+import org.csu.pixelstrikebackend.lobby.enums.UserStatus;
+import org.csu.pixelstrikebackend.lobby.mapper.MatchMapper;
+import org.csu.pixelstrikebackend.lobby.service.CustomRoomService;
+import org.csu.pixelstrikebackend.lobby.service.OnlineUserService;
+import org.csu.pixelstrikebackend.lobby.websocket.WebSocketSessionManager;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+@Service
+public class CustomRoomRoomServiceImpl implements CustomRoomService {
+
+    private final Map<String, MatchmakingRoom> customRooms = new ConcurrentHashMap<>();
+    private final Map<Integer, String> playerInRoomMap = new ConcurrentHashMap<>();
+
+    @Autowired
+    private OnlineUserService onlineUserService;
+    @Autowired
+    private WebSocketSessionManager webSocketSessionManager;
+    @Autowired
+    private GameLobbyBridge gameLobbyBridge;
+    @Autowired
+    private MatchMapper matchMapper;
+
+    public CommonResponse<Map<String, String>> createRoom(Integer hostId) {
+        if (playerInRoomMap.containsKey(hostId)) {
+            return CommonResponse.createForError("您已经在另一个房间中了");
+        }
+
+        MatchmakingRoom newRoom = new MatchmakingRoom();
+        newRoom.addPlayer(hostId);
+        customRooms.put(newRoom.getRoomId(), newRoom);
+        playerInRoomMap.put(hostId, newRoom.getRoomId());
+        onlineUserService.updateUserStatus(hostId, UserStatus.IN_ROOM);
+
+        System.out.println("玩家 " + hostId + " 创建了自定义房间: " + newRoom.getRoomId());
+        return CommonResponse.createForSuccess("创建成功", Map.of("roomId", newRoom.getRoomId()));
+    }
+
+    public CommonResponse<Map<String, String>> joinRoom(String roomId, Integer userId) {
+        if (playerInRoomMap.containsKey(userId)) {
+            return CommonResponse.createForError("您已经在另一个房间中了");
+        }
+
+        MatchmakingRoom room = customRooms.get(roomId);
+        if (room == null) {
+            return CommonResponse.createForError("房间不存在");
+        }
+        if (room.isFull()) {
+            return CommonResponse.createForError("房间已满");
+        }
+
+        // 通知房间内其他玩家有新人加入
+        notifyRoomMembers(roomId, Map.of("type", "player_joined", "userId", userId));
+
+        room.addPlayer(userId);
+        playerInRoomMap.put(userId, room.getRoomId());
+        onlineUserService.updateUserStatus(userId, UserStatus.IN_ROOM);
+
+        System.out.println("玩家 " + userId + " 加入了自定义房间: " + roomId);
+
+        // 将当前房间内所有玩家的信息返回给新加入者
+        List<Integer> playerIds = room.getPlayers().stream().toList();
+        return CommonResponse.createForSuccess("加入成功", Map.of("roomId", roomId, "players", playerIds.toString()));
+    }
+
+    // 开始自定义房间游戏
+    @Override
+    public CommonResponse<?> startRoom(String roomId, Integer userId) {
+        MatchmakingRoom room = customRooms.get(roomId);
+        if (room == null) {
+            return CommonResponse.createForError("房间不存在");
+        }
+        // (可以增加只有房主才能开始的逻辑)
+
+        // 1. 创建数据库对战记录
+        Match newMatch = new Match();
+        newMatch.setGameMode("自定义");
+        newMatch.setMapName("默认地图");
+        newMatch.setStartTime(LocalDateTime.now());
+        matchMapper.insert(newMatch);
+        Long gameId = newMatch.getId();
+
+        // 2. 通知游戏模块准备房间
+        List<Integer> playerIds = room.getPlayers().stream().toList();
+        gameLobbyBridge.onMatchSuccess(gameId, playerIds);
+
+        // 3. 通知所有房间内玩家进入游戏
+        Map<String, Object> successMessage = Map.of(
+                "type", "match_success",
+                "gameId", gameId,
+                "serverAddress", "ws://127.0.0.1:8080/game"
+        );
+        notifyRoomMembers(roomId, successMessage);
+
+        // 4. 清理自定义房间
+        customRooms.remove(roomId);
+        for(Integer pid : playerIds) {
+            playerInRoomMap.remove(pid);
+        }
+
+        return CommonResponse.createForSuccessMessage("游戏开始");
+    }
+
+    private void notifyRoomMembers(String roomId, Object payload) {
+        MatchmakingRoom room = customRooms.get(roomId);
+        if (room != null) {
+            for (Integer memberId : room.getPlayers()) {
+                webSocketSessionManager.sendMessageToUser(memberId, payload);
+            }
+        }
+    }
+}

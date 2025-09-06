@@ -69,12 +69,21 @@ public class FriendServiceImpl implements FriendService {
         if(userProfile == null) {
             return CommonResponse.createForError("添加玩家不存在");
         }
+
         QueryWrapper<Friend> queryWrapper = new QueryWrapper<>();
         queryWrapper.and(wrapper -> wrapper.eq("sender_id", senderId).eq("addr_id", addrId))
                 .or(wrapper -> wrapper.eq("sender_id", addrId).eq("addr_id", senderId));
-        if (friendMapper.exists(queryWrapper)) {
-            return CommonResponse.createForError("你们已经是好友或已发送过请求");
+        Friend existingFriendship = friendMapper.selectOne(queryWrapper);
+
+        if (existingFriendship != null) {
+            if ("accepted".equals(existingFriendship.getStatus())) {
+                return CommonResponse.createForError("你们已经是好友了");
+            }
+            if ("pending".equals(existingFriendship.getStatus())) {
+                return CommonResponse.createForError("已发送过好友请求，请等待对方处理");
+            }
         }
+
         Friend friendRequest = new Friend();
         friendRequest.setSenderId(senderId);
         friendRequest.setAddrId(addrId);
@@ -135,6 +144,30 @@ public class FriendServiceImpl implements FriendService {
                 webSocketSessionManager.sendMessageToUser(senderId, notification);
             }
             return CommonResponse.createForSuccessMessage("已同意好友请求");
+        } else {
+            return CommonResponse.createForError("请求不存在或已处理");
+        }
+    }
+
+    @Override
+    public CommonResponse<?> rejectFriendRequest(Integer userId, Integer senderId) {
+        // 拒绝就是直接删除这条 "pending" 状态的记录
+        QueryWrapper<Friend> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("sender_id", senderId).eq("addr_id", userId).eq("status", "pending");
+        int result = friendMapper.delete(queryWrapper);
+
+        if (result > 0) {
+            // （可选）可以通知请求方，你的请求被拒绝了
+            if (onlineUserService.isUserOnline(senderId)) {
+                UserProfile rejectorProfile = userProfileMapper.selectById(userId);
+                Map<String, Object> notification = Map.of(
+                        "type", "friend_request_rejected",
+                        "rejectorId", userId,
+                        "rejectorNickname", rejectorProfile.getNickname()
+                );
+                webSocketSessionManager.sendMessageToUser(senderId, notification);
+            }
+            return CommonResponse.createForSuccessMessage("已拒绝好友请求");
         } else {
             return CommonResponse.createForError("请求不存在或已处理");
         }

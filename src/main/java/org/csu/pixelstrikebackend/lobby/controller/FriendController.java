@@ -45,6 +45,13 @@ public class FriendController {
         return friendService.acceptFriendRequest(userId, senderId);
     }
 
+    // 拒绝好友申请 (DELETE /friends/requests/{senderId}/reject)
+    @DeleteMapping("/requests/{senderId}/reject")
+    public CommonResponse<?> rejectFriendRequest(@PathVariable Integer senderId, HttpServletRequest request) {
+        Integer userId = (Integer) request.getAttribute("userId");
+        return friendService.rejectFriendRequest(userId, senderId);
+    }
+
     /**
      * **接口1: 获取好友列表**
      * 用于好友列表页，返回包含昵称、头像和在线状态的摘要信息。

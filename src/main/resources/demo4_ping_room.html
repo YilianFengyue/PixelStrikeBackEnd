@@ -2,9 +2,9 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>PixelStrike 全功能测试台 (最终版)</title>
+    <title>PixelStrike 全功能测试台 (最终修复版)</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; justify-content: center; align-items: flex-start; padding: 20px; background-color: #f4f7f9; gap: 20px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; justify-content: center; align-items: flex-start; padding: 20px; background-color: #f4f7f9; gap: 20px; flex-wrap: wrap; }
         .panel { background-color: #ffffff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); padding: 25px; }
         .controls { min-width: 320px; }
         .game-container { position: relative; } /* For HUD positioning */
@@ -12,7 +12,10 @@
         h2 { border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; margin-top: 0; color: #333; }
         .form-group { margin-bottom: 15px; }
         label { display: block; margin-bottom: 5px; color: #555; font-weight: 500; }
-        input { width: calc(100% - 20px); padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        input { width: calc(100% - 22px); padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        .input-group { display: flex; }
+        .input-group input { flex-grow: 1; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+        .input-group button { width: auto; border-top-left-radius: 0; border-bottom-left-radius: 0; }
         button { width: 100%; padding: 12px; background-color: #007bff; color: white; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; transition: background-color 0.2s; margin-top: 5px; }
         button:hover { background-color: #0056b3; }
         button:disabled { background-color: #a0a0a0; cursor: not-allowed; }
@@ -21,19 +24,25 @@
         .log-entry.error { color: #D8000C; } .log-entry.success { color: #4F8A10; } .log-entry.ws { color: #551A8B; }
         .status-badge { padding: 4px 8px; border-radius: 12px; color: white; font-size: 12px; margin-left: 10px; display: inline-block; }
         .status-connected { background-color: #28a745; } .status-disconnected { background-color: #dc3545; }
-        .friend-list { list-style: none; padding: 0; max-height: 300px; overflow-y: auto; }
-        .friend-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid #eee; }
+        .list-container { list-style: none; padding: 0; max-height: 200px; overflow-y: auto; border: 1px solid #eee; }
+        .list-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid #eee; }
+        .list-item button { width: auto; padding: 4px 8px; font-size: 12px; margin-top: 0; }
         .friend-status { font-size: 12px; padding: 3px 8px; border-radius: 10px; color: white; }
-        .status-ONLINE { background-color: #28a745; } .status-OFFLINE { background-color: #6c757d; } .status-IN_GAME { background-color: #ffc107; color: #000 } .status-MATCHING { background-color: #17a2b8; }
+        .status-ONLINE { background-color: #28a745; } .status-OFFLINE { background-color: #6c757d; } .status-IN_GAME { background-color: #ffc107; color: #000 } .status-MATCHING { background-color: #17a2b8; } .status-IN_ROOM { background-color: #6f42c1; }
         #hud { position: absolute; top: 10px; left: 10px; color: white; font-size: 20px; font-weight: bold; text-shadow: 2px 2px 4px #000; }
         #game-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; background-color: rgba(0,0,0,0.3); color: white; font-size: 80px; font-weight: bold; text-shadow: 3px 3px 6px #000; pointer-events: none; visibility: hidden; }
         #results-container { margin-top: 15px; }
         .results-table { width: 100%; border-collapse: collapse; }
         .results-table th, .results-table td { border: 1px solid #ddd; padding: 8px; text-align: left;}
         .results-table th { background-color: #f2f2f2; }
+        .toast-notifications { position: fixed; top: 20px; right: 20px; z-index: 1000; }
+        .toast { background-color: #333; color: white; padding: 15px; border-radius: 5px; margin-bottom: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); display: flex; align-items: center; gap: 10px; min-width: 300px; }
+        .toast-actions button { width: auto; padding: 5px 10px; font-size: 12px; margin: 0 5px; }
+        .toast-accept { background-color: #28a745; } .toast-reject { background-color: #dc3545; }
     </style>
 </head>
 <body>
+<div id="toast-container" class="toast-notifications"></div>
 
 <div class="panel controls">
     <div id="login-section">
@@ -61,14 +70,42 @@
     <div id="game-overlay"></div>
 </div>
 
-
 <div class="panel" style="min-width: 400px;">
     <h2>大厅信息</h2>
     <p>大厅连接状态: <span id="lobby-ws-status" class="status-badge status-disconnected">未连接</span></p>
     <div id="friends-section" style="display: none;">
         <h3>好友列表</h3>
-        <ul id="friend-list" class="friend-list"></ul>
+        <ul id="friend-list" class="list-container"></ul>
     </div>
+
+    <div id="social-section" style="display: none; margin-top: 20px;">
+        <h3>社交与自定义房间</h3>
+        <div class="form-group">
+            <label for="search-nickname">搜索玩家 (按昵称):</label>
+            <div class="input-group">
+                <input type="text" id="search-nickname" placeholder="输入昵称">
+                <button onclick="searchUser()">搜索</button>
+            </div>
+        </div>
+        <ul id="search-results" class="list-container"></ul>
+        <hr>
+        <div class="form-group">
+            <button onclick="createCustomRoom()">创建自定义房间</button>
+            <div class="input-group" style="margin-top: 10px;">
+                <input type="text" id="created-room-id" placeholder="创建成功后显示房号" readonly>
+                <button onclick="copyRoomId()">复制</button>
+            </div>
+            <button id="start-custom-game-btn" onclick="startCustomGame()" style="display:none; background-color: #28a745;">开始游戏</button>
+        </div>
+        <div class="form-group">
+            <label for="join-room-id">加入房间 (输入房号):</label>
+            <div class="input-group">
+                <input type="text" id="join-room-id" placeholder="粘贴房号">
+                <button onclick="joinCustomRoom()">加入</button>
+            </div>
+        </div>
+    </div>
+
     <div id="results-section" style="display: none;">
         <h3 id="results-title">对局战绩</h3>
         <div id="results-container"></div>
@@ -77,16 +114,12 @@
     <div class="log-container" id="log-container"></div>
 </div>
 
-
 <script>
     const API_BASE_URL = 'http://localhost:8080';
     const WS_BASE_URL = 'ws://localhost:8080';
 
-    let authToken = null;
+    let authToken = null, myPlayerId = null, lastGameId = null, ping = 0;
     let lobbySocket = null, gameSocket = null;
-    let myPlayerId = null;
-    let lastGameId = null;
-
     let gameState = { players: {} };
     const keys = { a: false, d: false, w: false, " ": false, j: false };
     let controlsEnabled = false;
@@ -127,10 +160,21 @@
         log(`登录成功!`);
         document.getElementById('matchmaking-section').style.display = 'block';
         document.getElementById('friends-section').style.display = 'block';
-        document.getElementById('current-user').innerText = username;
+        document.getElementById('social-section').style.display = 'block';
         document.getElementById('login-section').style.display = 'none';
+
         connectLobbySocket();
         fetchFriends();
+        fetchMyProfile();
+    }
+
+    // 获取自己的Profile
+    async function fetchMyProfile() {
+        const response = await fetch(`${API_BASE_URL}/users/me`, { headers: { 'Authorization': `Bearer ${authToken}` } });
+        const result = await response.json();
+        if (result.status === 0) {
+            document.getElementById('current-user').innerText = result.data.nickname;
+        }
     }
 
     function connectLobbySocket() {
@@ -155,10 +199,19 @@
                     document.getElementById('results-section').style.display = 'none';
                     break;
                 case 'status_update': updateFriendStatus(msg.userId, msg.status); break;
-                case 'new_friend_request': alert(`收到来自 ${msg.senderNickname} 的好友请求!`); break;
+                case 'new_friend_request':
+                    // 【修复】使用新的通知系统
+                    createToast(`收到来自 <b>${msg.senderNickname}</b> 的好友请求`, [
+                        { text: '同意', class: 'toast-accept', action: () => handleFriendRequest(msg.senderId, 'accept') },
+                        { text: '拒绝', class: 'toast-reject', action: () => handleFriendRequest(msg.senderId, 'reject') }
+                    ]);
+                    break;
                 case 'friend_request_accepted':
-                    alert(`${msg.acceptorNickname} 已接受您的好友请求!`);
+                    createToast(`<b>${msg.acceptorNickname}</b> 已接受您的好友请求!`);
                     fetchFriends();
+                    break;
+                case 'friend_request_rejected':
+                    createToast(`<b>${msg.rejectorNickname}</b> 拒绝了您的好友请求。`);
                     break;
             }
         };
@@ -201,6 +254,85 @@
         }
     }
 
+    // 【新增】好友请求处理函数
+    async function handleFriendRequest(senderId, decision) {
+        const url = `${API_BASE_URL}/friends/requests/${senderId}/${decision === 'accept' ? 'accept' : 'reject'}`;
+        const method = decision === 'accept' ? 'PUT' : 'DELETE';
+        log(`${decision === 'accept' ? '同意' : '拒绝'} ID为 ${senderId} 的好友请求`);
+        await fetch(url, { method, headers: { 'Authorization': `Bearer ${authToken}` } });
+        fetchFriends(); // 刷新好友列表
+    }
+
+    // 【新增】通知UI系统
+    function createToast(message, actions = []) {
+        const toastContainer = document.getElementById('toast-container');
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+
+        let messageHTML = `<span>${message}</span>`;
+
+        if (actions.length > 0) {
+            const actionsDiv = document.createElement('div');
+            actionsDiv.className = 'toast-actions';
+            actions.forEach(act => {
+                const button = document.createElement('button');
+                button.className = act.class;
+                button.textContent = act.text;
+                button.onclick = () => {
+                    act.action();
+                    toast.remove();
+                };
+                actionsDiv.appendChild(button);
+            });
+            toast.innerHTML = messageHTML;
+            toast.appendChild(actionsDiv);
+        } else {
+            toast.innerHTML = messageHTML;
+        }
+
+        toastContainer.appendChild(toast);
+
+        setTimeout(() => {
+            if (toast) toast.remove();
+        }, 8000);
+    }
+
+
+
+    // 搜索用户
+    async function searchUser() {
+        const nickname = document.getElementById('search-nickname').value;
+        if (!nickname) return;
+        log(`搜索玩家: ${nickname}`);
+        // 【修复】添加了 Authorization Header
+        const response = await fetch(`${API_BASE_URL}/friends/search?nickname=${nickname}`, { headers: { 'Authorization': `Bearer ${authToken}` } });
+        const result = await response.json();
+        const resultsList = document.getElementById('search-results');
+        resultsList.innerHTML = '';
+        if (result.data && result.data.length > 0) {
+            result.data.forEach(user => {
+                const li = document.createElement('li');
+                li.className = 'list-item';
+                li.innerHTML = `<span>${user.nickname} (ID: ${user.userId})</span> <button onclick="sendFriendRequest(${user.userId})">加好友</button>`;
+                resultsList.appendChild(li);
+            });
+        } else {
+            resultsList.innerHTML = '<li>未找到玩家</li>';
+        }
+    }
+
+    // 发送好友请求
+    async function sendFriendRequest(userId) {
+        log(`发送好友请求给 ID: ${userId}`);
+        const response = await fetch(`${API_BASE_URL}/friends/requests/${userId}`, { method: 'POST', headers: { 'Authorization': `Bearer ${authToken}` } });
+        const result = await response.json();
+        if (result.status === 0) {
+            log('好友请求发送成功!', 'success');
+        } else {
+            log(`发送失败: ${result.message}`, 'error');
+        }
+    }
+
     // --- 3. 匹配与游戏连接 ---
     async function startMatchmaking() {
         log('请求开始匹配...');
@@ -215,6 +347,60 @@
         await fetch(`${API_BASE_URL}/matchmaking/cancel`, { method: 'POST', headers: { 'Authorization': `Bearer ${authToken}` } });
     }
 
+    // 创建自定义房间
+    async function createCustomRoom() {
+        log('正在创建自定义房间...');
+        const response = await fetch(`${API_BASE_URL}/custom-rooms/create`, { method: 'POST', headers: { 'Authorization': `Bearer ${authToken}` } });
+        const result = await response.json();
+        if (result.status === 0) {
+            const roomId = result.data.roomId;
+            log(`房间创建成功! 房号: <b>${roomId}</b>`, 'success');
+            document.getElementById('created-room-id').value = roomId;
+            document.getElementById('start-custom-game-btn').style.display = 'block'; // 显示开始按钮
+        } else {
+            log(`创建失败: ${result.message}`, 'error');
+            alert(result.message);
+        }
+    }
+
+    // 复制房号到剪贴板
+    function copyRoomId() {
+        const roomIdInput = document.getElementById('created-room-id');
+        if (roomIdInput.value) {
+            navigator.clipboard.writeText(roomIdInput.value).then(() => {
+                log('房号已复制到剪贴板!', 'success');
+            }, (err) => {
+                log('复制失败: ' + err, 'error');
+            });
+        }
+    }
+
+    // 加入自定义房间
+    async function joinCustomRoom() {
+        const roomId = document.getElementById('join-room-id').value;
+        if (!roomId) return;
+        log(`正在加入房间: ${roomId}`);
+        const response = await fetch(`${API_BASE_URL}/custom-rooms/join/${roomId}`, { method: 'POST', headers: { 'Authorization': `Bearer ${authToken}` } });
+        const result = await response.json();
+        if (result.status === 0) {
+            log('加入房间成功!', 'success');
+        } else {
+            log(`加入失败: ${result.message}`, 'error');
+            alert(result.message);
+        }
+    }
+
+    // 开始自定义游戏
+    async function startCustomGame() {
+        const roomId = document.getElementById('created-room-id').value;
+        if (!roomId) {
+            alert("没有已创建的房间!");
+            return;
+        }
+        log(`房主开始游戏，房号: ${roomId}`);
+        await fetch(`${API_BASE_URL}/custom-rooms/${roomId}/start`, { method: 'POST', headers: { 'Authorization': `Bearer ${authToken}` } });
+    }
+
     function connectGameWebSocket(gameId) {
         if(gameSocket) gameSocket.close();
 
@@ -222,37 +408,42 @@
         log(`连接到游戏...`);
         gameSocket = new WebSocket(gameWsUrl);
 
-        gameSocket.onopen = () => {
-            log('游戏连接成功!', 'success');
-            controlsEnabled = false; // 初始时禁用控制
-        };
+        gameSocket.onopen = () => { log('游戏连接成功!', 'success'); controlsEnabled = false; };
+
         gameSocket.onmessage = (event) => {
             const msg = JSON.parse(event.data);
+
             if (msg.type === 'welcome') {
                 myPlayerId = msg.playerId;
                 log(`<b>成功识别我的玩家ID: ${myPlayerId.substring(0, 8)}</b>`, 'success');
                 return;
             }
+            if (msg.type === 'pong') {
+                ping = Date.now() - msg.timestamp;
+                return;
+            }
+
             gameState = msg;
         };
+
         gameSocket.onclose = () => {
             log('游戏连接断开 (游戏结束)。', 'error');
-            myPlayerId = null;
-            controlsEnabled = false;
+            myPlayerId = null; controlsEnabled = false;
             gameOverlay.textContent = "GAME OVER";
             gameOverlay.style.visibility = 'visible';
-            if (lastGameId) {
-                fetchMatchResults(); // 自动查询战绩
-            }
+            if (lastGameId) { fetchMatchResults(); }
         };
     }
-
     // --- 4. 客户端输入与渲染 ---
-    window.addEventListener('keydown', (e) => { if (keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = true; });
-    window.addEventListener('keyup', (e) => { if (keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = false; });
+    // Ping 发送逻辑
+    setInterval(() => {
+        if (gameSocket && gameSocket.readyState === WebSocket.OPEN) {
+            gameSocket.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }));
+        }
+    }, 2000);
 
     setInterval(() => {
-        if (!gameSocket || gameSocket.readyState !== WebSocket.OPEN || !controlsEnabled) return; // 如果控制被禁用，则不发送指令
+        if (!gameSocket || gameSocket.readyState !== WebSocket.OPEN || !controlsEnabled) return;
         let moveInput = 0;
         if (keys.d) moveInput = 1; if (keys.a) moveInput = -1;
         let actions = 0;
@@ -261,6 +452,10 @@
         gameSocket.send(JSON.stringify({ moveInput, actions }));
         keys.w = keys[' '] = keys.j = false;
     }, 50);
+
+    window.addEventListener('keydown', (e) => { if (keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = true; });
+    window.addEventListener('keyup', (e) => { if (keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = false; });
+
 
     function gameLoop() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -281,23 +476,21 @@
             }
         }
 
-        // --- 核心修改：处理倒计时和游戏状态 ---
         if (gameState.countdownSeconds != null && gameState.countdownSeconds > 0) {
             gameOverlay.textContent = gameState.countdownSeconds;
             gameOverlay.style.visibility = 'visible';
-            controlsEnabled = false; // 倒计时期间禁用控制
+            controlsEnabled = false;
         } else if (gameState.countdownSeconds === 0) {
             gameOverlay.textContent = "START!";
             gameOverlay.style.visibility = 'visible';
-            controlsEnabled = true; // 倒计时结束，启用控制
-            // 延迟一秒后隐藏 "START!"
+            controlsEnabled = true;
             setTimeout(() => { gameOverlay.style.visibility = 'hidden'; }, 1000);
         }
 
         if (myPlayerId && gameState.players[myPlayerId]) {
             const me = gameState.players[myPlayerId];
-            hud.innerHTML = `HP: ${me.health} | Ammo: ${me.ammo} | K/D: ${me.kills}/${me.deaths}`;
-        } else {
+            hud.innerHTML = `HP: ${me.health} | Ammo: ${me.ammo} | K/D: ${me.kills}/${me.deaths} | Ping: ${ping}ms`;
+        } else if (!gameSocket || gameSocket.readyState !== WebSocket.OPEN) {
             hud.innerHTML = '等待加入游戏...';
         }
 
