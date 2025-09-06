@@ -1,6 +1,5 @@
 package org.csu.pixelstrikebackend.lobby.controller;
 
-import jakarta.servlet.http.HttpServletRequest;
 import org.csu.pixelstrikebackend.lobby.common.CommonResponse;
 import org.csu.pixelstrikebackend.lobby.dto.MatchHistoryDTO;
 import org.csu.pixelstrikebackend.lobby.dto.MatchResultDTO;
@@ -10,6 +9,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ServerWebExchange;
 
 import java.util.List;
 
@@ -32,8 +32,8 @@ public class MatchController {
 
     // 查看历史战绩, 即完整对战历史
     @GetMapping("/me")
-    public CommonResponse<List<MatchHistoryDTO>> getMyMatchHistory(HttpServletRequest request) {
-        Integer userId = (Integer) request.getAttribute("userId");
+    public CommonResponse<List<MatchHistoryDTO>> getMyMatchHistory(ServerWebExchange exchange) {
+        Integer userId = exchange.getAttribute("userId");
         List<MatchHistoryDTO> history = matchParticipantMapper.selectMatchHistoryForUser(userId);
         return CommonResponse.createForSuccess("查询成功", history);
     }

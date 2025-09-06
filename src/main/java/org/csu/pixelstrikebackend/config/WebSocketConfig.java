@@ -1,37 +1,44 @@
 package org.csu.pixelstrikebackend.config;
 
 import org.csu.pixelstrikebackend.game.websocket.GameWebSocketHandler;
-import org.csu.pixelstrikebackend.lobby.websocket.AuthHandshakeInterceptor;
 import org.csu.pixelstrikebackend.lobby.websocket.UserStatusWebSocketHandler;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.socket.config.annotation.EnableWebSocket;
-import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
-import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
+import org.springframework.core.Ordered;
+import org.springframework.web.reactive.HandlerMapping;
+import org.springframework.web.reactive.handler.SimpleUrlHandlerMapping;
+import org.springframework.web.reactive.socket.WebSocketHandler;
+import org.springframework.web.reactive.socket.server.support.WebSocketHandlerAdapter;
+
+import java.util.HashMap;
+import java.util.Map;
 
 @Configuration
-@EnableWebSocket
-public class WebSocketConfig implements WebSocketConfigurer {
+public class WebSocketConfig {
 
     @Autowired
     private UserStatusWebSocketHandler userStatusWebSocketHandler;
 
     @Autowired
-    private AuthHandshakeInterceptor authHandshakeInterceptor;
-
-    @Autowired
     private GameWebSocketHandler gameWebSocketHandler;
 
-    @Override
-    public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        // 1. 为大厅/好友状态的 WebSocket ("/ws") 应用认证
-        registry.addHandler(userStatusWebSocketHandler, "/ws")
-                .addInterceptors(authHandshakeInterceptor) // 添加认证拦截器
-                .setAllowedOrigins("*");
+    @Bean
+    public HandlerMapping webSocketHandlerMapping() {
+        Map<String, WebSocketHandler> map = new HashMap<>();
+        // 注意：这里的WebSocketHandler需要是Spring WebFlux的版本
+        map.put("/ws", (WebSocketHandler) userStatusWebSocketHandler);
+        map.put("/game", (WebSocketHandler) gameWebSocketHandler);
 
-        // 2. 为游戏对战的 WebSocket ("/game") 应用【相同】的认证
-        registry.addHandler(gameWebSocketHandler, "/game")
-                .addInterceptors(authHandshakeInterceptor) // 确保这一行是存在的
-                .setAllowedOrigins("*");
+        SimpleUrlHandlerMapping handlerMapping = new SimpleUrlHandlerMapping();
+        // 优先级设高一点，确保WebSocket请求被优先处理
+        handlerMapping.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        handlerMapping.setUrlMap(map);
+        return handlerMapping;
+    }
+
+    @Bean
+    public WebSocketHandlerAdapter handlerAdapter() {
+        return new WebSocketHandlerAdapter();
     }
 }

@@ -1,5 +1,6 @@
 package org.csu.pixelstrikebackend.game.service;
 
+
 import org.csu.pixelstrikebackend.game.GameLobbyBridge;
 import org.csu.pixelstrikebackend.game.system.*;
 import org.csu.pixelstrikebackend.lobby.entity.MatchParticipant;
@@ -7,13 +8,11 @@ import org.csu.pixelstrikebackend.lobby.service.MatchmakingService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
-import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.reactive.socket.WebSocketSession;
 
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 @Service
 public class GameRoomManager implements GameLobbyBridge {
@@ -22,17 +21,11 @@ public class GameRoomManager implements GameLobbyBridge {
     // 玩家ID到房间ID的映射，方便快速查找
     private final Map<String, String> playerToRoomMap = new ConcurrentHashMap<>();
 
-    // 使用线程池来管理所有房间的线程
-    private final ExecutorService roomExecutor = Executors.newCachedThreadPool();
-
-
-
     private final MatchmakingService matchmakingService;
 
     // 使用构造器注入，并用@Lazy解决可能的循环依赖问题
-    public GameRoomManager(@Lazy MatchmakingService matchmakingService, WebSocketBroadcastService broadcaster) {
+    public GameRoomManager(@Lazy MatchmakingService matchmakingService) {
         this.matchmakingService = matchmakingService;
-        this.broadcaster = broadcaster;
     }
 
     @Autowired
@@ -53,13 +46,12 @@ public class GameRoomManager implements GameLobbyBridge {
         System.out.println("游戏模块收到通知: 创建房间 " + roomId);
 
         activeRooms.computeIfAbsent(roomId, id -> {
-            // 创建GameRoom时，将所有依赖（包括新的gameCountdownSystem）按正确顺序传入
             GameRoom newRoom = new GameRoom(id, this,
                     inputSystem, combatSystem, physicsSystem,
                     gameStateSystem, gameConditionSystem, gameCountdownSystem,
-                    gameTimerSystem,
-                    broadcaster, playerIds);
-            roomExecutor.submit(newRoom);
+                    gameTimerSystem, broadcaster, playerIds);
+            // 不再提交到线程池
+            // roomExecutor.submit(newRoom);
             return newRoom;
         });
     }
@@ -67,25 +59,15 @@ public class GameRoomManager implements GameLobbyBridge {
     @Override
     public void onGameConcluded(Long gameId, List<MatchParticipant> results) {
         System.out.println("游戏模块上报战绩给大厅，游戏ID: " + gameId);
-        // 通过桥接调用大厅服务来持久化数据
         matchmakingService.processGameResults(gameId, results);
-
-        // （可选）游戏结束后，可以从activeRooms中移除GameRoom实例
-        activeRooms.remove(gameId.toString());
-        System.out.println("游戏房间 " + gameId + " 已结束，资源已清理。");
     }
 
-    public void addPlayerToRoom(String roomId, WebSocketSession session) {
+    // addPlayerToRoom 方法增加一个 userId 参数
+    public void addPlayerToRoom(String roomId, WebSocketSession session, Integer userId) {
         GameRoom room = activeRooms.get(roomId);
         if (room != null) {
-            // 将 userId 传递给 addPlayer 方法
-            Integer userId = (Integer) session.getAttributes().get("userId");
-            if (userId != null) {
-                room.addPlayer(session, userId);
-                playerToRoomMap.put(session.getId(), roomId);
-            } else {
-                System.err.println("错误：未认证的用户尝试加入游戏房间！Session ID: " + session.getId());
-            }
+            room.addPlayer(session, userId);
+            playerToRoomMap.put(session.getId(), roomId);
         }
     }
 
@@ -99,10 +81,14 @@ public class GameRoomManager implements GameLobbyBridge {
         }
     }
 
+    // 新增一个方法，让 GameRoom 在结束时能通知 Manager
+    public void removeGameRoom(String roomId) {
+        activeRooms.remove(roomId);
+        System.out.println("游戏房间 " + roomId + " 已结束，资源已清理。");
+    }
+
     public GameRoom getRoomForPlayer(String playerId) {
         String roomId = playerToRoomMap.get(playerId);
         return (roomId != null) ? activeRooms.get(roomId) : null;
     }
-
-    // ... 其他管理方法，如销毁房间等
 }

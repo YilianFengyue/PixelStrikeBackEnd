@@ -4,16 +4,18 @@ package org.csu.pixelstrikebackend.config;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.server.SecurityWebFilterChain;
 
 import static org.springframework.security.config.Customizer.withDefaults;
 
 @Configuration
-@EnableWebSecurity
+@EnableWebFluxSecurity
 public class SecurityConfig {
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -22,25 +24,17 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityWebFilterChain securityWebFilterChain(ServerHttpSecurity http) throws Exception {
         http
                 .cors(withDefaults())
-
-                // 1. 【解决POST拦截问题】禁用 CSRF
-                .csrf(csrf -> csrf.disable())
-
-                // 2. 【核心】关闭 Session 管理，改为无状态策略
-                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-
-                // 3. 禁用默认的登录页，防止重定向
-                .formLogin(formLogin -> formLogin.disable())
-
-                // 4. 禁用默认的登出处理
-                .logout(logout -> logout.disable())
-
-                // 5. 授权规则
-                .authorizeHttpRequests(auth -> auth
-                        .anyRequest().permitAll()
+                // 禁用 CSRF
+                .csrf(ServerHttpSecurity.CsrfSpec::disable)
+                // 禁用默认的 formLogin 和 httpBasic
+                .formLogin(ServerHttpSecurity.FormLoginSpec::disable)
+                .httpBasic(ServerHttpSecurity.HttpBasicSpec::disable)
+                // 授权规则
+                .authorizeExchange(auth -> auth
+                        .anyExchange().permitAll() // 允许所有请求
                 );
 
         return http.build();

@@ -1,22 +1,30 @@
 package org.csu.pixelstrikebackend.game.service;
 
+
 import com.google.gson.Gson;
 import org.csu.pixelstrikebackend.dto.GameStateSnapshot;
-import org.csu.pixelstrikebackend.dto.GameStateSnapshot.GameEvent;
 import org.csu.pixelstrikebackend.dto.PlayerState;
 import org.csu.pixelstrikebackend.dto.UserCommand;
 import org.csu.pixelstrikebackend.game.system.*;
 import org.csu.pixelstrikebackend.lobby.entity.MatchParticipant;
-import org.springframework.web.socket.CloseStatus;
-import org.springframework.web.socket.TextMessage;
-import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.reactive.socket.CloseStatus;
+import org.springframework.web.reactive.socket.WebSocketSession;
+import reactor.core.Disposable;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.io.IOException;
-import java.util.*;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
-public class GameRoom implements Runnable {
+public class GameRoom {
 
     // --- 核心服务 ---
     private final InputSystem inputSystem;
@@ -36,15 +44,16 @@ public class GameRoom implements Runnable {
     private final Queue<UserCommand> commandQueue = new ConcurrentLinkedQueue<>();
     private final Map<String, Long> deadPlayerTimers = new ConcurrentHashMap<>();
     private final Map<String, Integer> sessionToUserIdMap = new ConcurrentHashMap<>();
-    private volatile boolean isRunning = true;
     private final long gameStartTime;
     private final int expectedPlayerCount;
     private final GameCountdownSystem.RoomState countdownRoomState;
 
     private enum RoomPhase { WAITING_FOR_PLAYERS, COUNTDOWN, RUNNING, CONCLUDED }
-    private RoomPhase currentPhase = RoomPhase.WAITING_FOR_PLAYERS;
-
+    private volatile RoomPhase currentPhase = RoomPhase.WAITING_FOR_PLAYERS;
     private final Gson gson = new Gson();
+
+    private final AtomicBoolean isRunning = new AtomicBoolean(false);
+    private Disposable gameLoopSubscription;
 
     public GameRoom(String roomId,
                     GameRoomManager roomManager,
@@ -89,9 +98,10 @@ public class GameRoom implements Runnable {
         sendWelcomeMessage(session);
 
         // 当所有预期玩家都加入后，开始倒计时
-        if (sessions.size() == expectedPlayerCount) {
+        if (sessions.size() == expectedPlayerCount && isRunning.compareAndSet(false, true)) {
             this.currentPhase = RoomPhase.COUNTDOWN;
-            System.out.println("玩家已满，房间 " + roomId + " 进入倒计时阶段...");
+            System.out.println("玩家已满，房间 " + roomId + " 进入倒计时阶段，启动游戏循环...");
+            startGameLoop();
         }
     }
 
@@ -100,11 +110,9 @@ public class GameRoom implements Runnable {
                 "type", "welcome",
                 "playerId", session.getId()
         );
-        try {
-            session.sendMessage(new TextMessage(gson.toJson(welcomeMessage)));
-        } catch (IOException e) {
-            System.err.println("Failed to send welcome message to " + session.getId());
-        }
+        String message = gson.toJson(welcomeMessage);
+        // 使用 session.send 发送消息，并调用 subscribe() 触发
+        session.send(Mono.just(session.textMessage(message))).subscribe();
     }
 
     public void removePlayer(WebSocketSession session) {
@@ -118,66 +126,68 @@ public class GameRoom implements Runnable {
     }
 
     public void stop() {
-        this.isRunning = false;
+        if (isRunning.compareAndSet(true, false)) {
+            if (gameLoopSubscription != null && !gameLoopSubscription.isDisposed()) {
+                gameLoopSubscription.dispose(); // 取消订阅，停止循环
+            }
+            // 确保在循环结束后执行清理工作
+            onGameConcluded();
+        }
     }
 
-    @Override
-    public void run() {
-        final long TICK_RATE = 20;
-        final long SKIP_TICKS = 1000 / TICK_RATE;
-        long nextGameTick = System.currentTimeMillis();
-        long tickNumber = 0;
+    private void startGameLoop() {
+        final long TICK_RATE_MS = 50; // 20Hz
+        AtomicLong tickNumber = new AtomicLong(0);
 
-        while (isRunning) {
-            try {
-                tickNumber++;
-                List<GameEvent> currentTickEvents = new ArrayList<>();
-                GameStateSnapshot snapshot = new GameStateSnapshot(); // 在循环开始时创建snapshot
+        this.gameLoopSubscription = Flux.interval(Duration.ofMillis(TICK_RATE_MS))
+                .doOnNext(tick -> gameTick(tickNumber.incrementAndGet()))
+                .doOnError(e -> System.err.println("Game loop error in room " + roomId + ": " + e.getMessage()))
+                .subscribe();
+    }
 
-                // --- 使用状态机 ---
-                if (currentPhase == RoomPhase.COUNTDOWN) {
-                    boolean countdownFinished = gameCountdownSystem.update(countdownRoomState, snapshot);
-                    if (countdownFinished) {
-                        currentPhase = RoomPhase.RUNNING;
-                    }
-                } else if (currentPhase == RoomPhase.RUNNING) {
-                    gameTimerSystem.update(snapshot, gameStartTime);
-                    inputSystem.processCommands(commandQueue, playerStates);
-                    combatSystem.update(playerStates, currentTickEvents);
-                    physicsSystem.update(playerStates, currentTickEvents);
-                    gameStateSystem.update(playerStates, deadPlayerTimers);
-
-                    if (gameConditionSystem.shouldGameEnd(playerStates, gameStartTime)) {
-                        currentPhase = RoomPhase.CONCLUDED;
-                        this.stop();
-                    }
-                }
-
-                broadcastSnapshot(tickNumber, currentTickEvents, snapshot); // 【修复】传递snapshot
-
-                // 控制Tick率
-                nextGameTick += SKIP_TICKS;
-                long sleepTime = nextGameTick - System.currentTimeMillis();
-                if (sleepTime >= 0) {
-                    Thread.sleep(sleepTime);
-                }
-            } catch (InterruptedException e) { // <--- 捕获中断异常
-                Thread.currentThread().interrupt();
-                isRunning = false;
-                System.err.println("Game room " + roomId + " thread was interrupted.");
-            } catch (Exception e) { // <--- 捕获所有其他异常
-                // 关键：打印错误日志，但不要让线程死掉！
-                System.err.println("!!!!!! An error occurred in game loop for room " + roomId + " !!!!!!");
-                e.printStackTrace();
-                // 循环会继续，游戏房间不会因此崩溃
-            }
+    private void gameTick(long tickNumber) {
+        if (!isRunning.get()) {
+            return;
         }
+
+        try {
+            List<GameStateSnapshot.GameEvent> currentTickEvents = new ArrayList<>();
+            GameStateSnapshot snapshot = new GameStateSnapshot();
+
+            if (currentPhase == RoomPhase.COUNTDOWN) {
+                boolean countdownFinished = gameCountdownSystem.update(countdownRoomState, snapshot);
+                if (countdownFinished) {
+                    currentPhase = RoomPhase.RUNNING;
+                }
+            } else if (currentPhase == RoomPhase.RUNNING) {
+                gameTimerSystem.update(snapshot, gameStartTime);
+                inputSystem.processCommands(commandQueue, playerStates);
+                combatSystem.update(playerStates, currentTickEvents);
+                physicsSystem.update(playerStates, currentTickEvents);
+                gameStateSystem.update(playerStates, deadPlayerTimers);
+
+                if (gameConditionSystem.shouldGameEnd(playerStates, gameStartTime)) {
+                    currentPhase = RoomPhase.CONCLUDED;
+                    stop(); // 触发游戏结束流程
+                }
+            }
+
+            broadcastSnapshot(tickNumber, currentTickEvents, snapshot);
+        } catch (Exception e) {
+            System.err.println("!!!!!! An error occurred in game tick for room " + roomId + " !!!!!!");
+            e.printStackTrace();
+        }
+    }
+
+    private void onGameConcluded() {
+        System.out.printf("Game room %s has concluded.\n", roomId);
         reportGameResults();
         notifyAndCloseConnections();
-        System.out.printf("Game room %s has been shut down.\n", roomId);
+        // 通知Manager移除自己
+        roomManager.removeGameRoom(this.roomId);
     }
 
-    private void broadcastSnapshot(long tickNumber, List<GameEvent> events, GameStateSnapshot snapshot) {
+    private void broadcastSnapshot(long tickNumber, List<GameStateSnapshot.GameEvent> events, GameStateSnapshot snapshot) {
         snapshot.setTickNumber(tickNumber);
         snapshot.setPlayers(new ConcurrentHashMap<>(playerStates));
         snapshot.setEvents(events);
@@ -185,19 +195,16 @@ public class GameRoom implements Runnable {
     }
 
     private void notifyAndCloseConnections() {
-        // （可选）在关闭前发送一条游戏结束的消息
         Map<String, Object> gameOverMessage = Map.of("type", "game_over", "reason", "Match finished");
-        TextMessage finalMessage = new TextMessage(gson.toJson(gameOverMessage));
+        String finalMessage = gson.toJson(gameOverMessage);
 
         System.out.println("游戏结束，正在关闭所有玩家连接...");
         for (WebSocketSession session : sessions.values()) {
-            try {
-                if (session.isOpen()) {
-                    // session.sendMessage(finalMessage); // (可选) 发送最后的消息
-                    session.close(CloseStatus.NORMAL.withReason("Game Over"));
-                }
-            } catch (IOException e) {
-                System.err.println("关闭 session " + session.getId() + " 出错: " + e.getMessage());
+            if (session.isOpen()) {
+                // 先发送消息，.then() 表示发送完成后，再执行关闭操作
+                session.send(Mono.just(session.textMessage(finalMessage)))
+                        .then(session.close(CloseStatus.NORMAL.withReason("Game Over")))
+                        .subscribe();
             }
         }
     }
