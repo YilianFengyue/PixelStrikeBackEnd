@@ -11,4 +11,6 @@ public interface CustomRoomService {
     CommonResponse<Map<String, String>> joinRoom(String roomId, Integer userId);
 
     CommonResponse<?> startRoom(String roomId, Integer userId);
+
+    CommonResponse<?> leaveRoom(Integer userId);
 }

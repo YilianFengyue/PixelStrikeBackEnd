@@ -30,6 +30,7 @@ public class PlayerState {
      * 例如：IDLE, RUN, JUMP, FALL, SHOOT, HIT, DEAD
      */
     private PlayerActionState currentAction;
+    private Integer gameTimeRemainingSeconds;
 
     // 二段跳属性
     private boolean canDoubleJump = false;

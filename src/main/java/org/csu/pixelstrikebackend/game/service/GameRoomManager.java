@@ -44,6 +44,7 @@ public class GameRoomManager implements GameLobbyBridge {
     @Autowired private GameStateSystem gameStateSystem;
     @Autowired private GameConditionSystem gameConditionSystem;
     @Autowired private GameCountdownSystem gameCountdownSystem;
+    @Autowired private GameTimerSystem gameTimerSystem;
 
     // --- 实现桥接接口的方法 ---
     @Override
@@ -56,6 +57,7 @@ public class GameRoomManager implements GameLobbyBridge {
             GameRoom newRoom = new GameRoom(id, this,
                     inputSystem, combatSystem, physicsSystem,
                     gameStateSystem, gameConditionSystem, gameCountdownSystem,
+                    gameTimerSystem,
                     broadcaster, playerIds);
             roomExecutor.submit(newRoom);
             return newRoom;
@@ -70,12 +72,13 @@ public class GameRoomManager implements GameLobbyBridge {
 
         // （可选）游戏结束后，可以从activeRooms中移除GameRoom实例
         activeRooms.remove(gameId.toString());
+        System.out.println("游戏房间 " + gameId + " 已结束，资源已清理。");
     }
 
     public void addPlayerToRoom(String roomId, WebSocketSession session) {
         GameRoom room = activeRooms.get(roomId);
         if (room != null) {
-            // 【重要修改】将 userId 传递给 addPlayer 方法
+            // 将 userId 传递给 addPlayer 方法
             Integer userId = (Integer) session.getAttributes().get("userId");
             if (userId != null) {
                 room.addPlayer(session, userId);

@@ -25,6 +25,7 @@ public class GameRoom implements Runnable {
     private final GameStateSystem gameStateSystem;
     private final GameConditionSystem gameConditionSystem;
     private final GameCountdownSystem gameCountdownSystem;
+    private final GameTimerSystem gameTimerSystem;
     private final WebSocketBroadcastService broadcaster;
     private final GameRoomManager roomManager;
 
@@ -53,6 +54,7 @@ public class GameRoom implements Runnable {
                     GameStateSystem gameStateSystem,
                     GameConditionSystem gameConditionSystem,
                     GameCountdownSystem gameCountdownSystem,
+                    GameTimerSystem gameTimerSystem,
                     WebSocketBroadcastService broadcaster,
                     List<Integer> playerIds) {
         this.roomId = roomId;
@@ -63,6 +65,7 @@ public class GameRoom implements Runnable {
         this.gameStateSystem = gameStateSystem;
         this.gameConditionSystem = gameConditionSystem;
         this.gameCountdownSystem = gameCountdownSystem;
+        this.gameTimerSystem = gameTimerSystem;
         this.broadcaster = broadcaster;
         this.gameStartTime = System.currentTimeMillis();
         this.expectedPlayerCount = playerIds.size();
@@ -128,7 +131,7 @@ public class GameRoom implements Runnable {
         while (isRunning) {
             tickNumber++;
             List<GameEvent> currentTickEvents = new ArrayList<>();
-            GameStateSnapshot snapshot = new GameStateSnapshot(); // 【修复】在循环开始时创建snapshot
+            GameStateSnapshot snapshot = new GameStateSnapshot(); // 在循环开始时创建snapshot
 
             // --- 使用状态机 ---
             if (currentPhase == RoomPhase.COUNTDOWN) {
@@ -137,6 +140,7 @@ public class GameRoom implements Runnable {
                     currentPhase = RoomPhase.RUNNING;
                 }
             } else if (currentPhase == RoomPhase.RUNNING) {
+                gameTimerSystem.update(snapshot, gameStartTime);
                 inputSystem.processCommands(commandQueue, playerStates);
                 combatSystem.update(playerStates, currentTickEvents);
                 physicsSystem.update(playerStates, currentTickEvents);

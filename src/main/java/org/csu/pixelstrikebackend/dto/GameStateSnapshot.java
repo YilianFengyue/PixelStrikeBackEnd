@@ -39,6 +39,7 @@ public class GameStateSnapshot {
      */
     private List<GameEvent> events;
     private Integer countdownSeconds;
+    private Integer gameTimeRemainingSeconds;
 
     // --- 嵌套的子DTOs ---
 

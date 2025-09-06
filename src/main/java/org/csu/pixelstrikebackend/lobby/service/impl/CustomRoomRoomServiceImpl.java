@@ -112,6 +112,47 @@ public class CustomRoomRoomServiceImpl implements CustomRoomService {
         return CommonResponse.createForSuccessMessage("游戏开始");
     }
 
+    @Override
+    public CommonResponse<?> leaveRoom(Integer userId) {
+        String roomId = playerInRoomMap.get(userId);
+        if (roomId == null) {
+            return CommonResponse.createForError("您不在任何房间中");
+        }
+
+        MatchmakingRoom room = customRooms.get(roomId);
+        if (room == null) {
+            // 数据不一致的边界情况，清理脏数据
+            playerInRoomMap.remove(userId);
+            return CommonResponse.createForError("房间不存在，已将您移除");
+        }
+
+        // --- 核心修改：检查是否是房主退出 ---
+        if (userId.equals(room.getHostId())) {
+            System.out.println("房主 " + userId + " 退出，解散房间 " + roomId);
+            // 通知所有成员，房间已解散
+            notifyRoomMembers(roomId, Map.of("type", "room_disbanded", "reason", "房主已离开"));
+
+            // 将所有玩家移出房间映射并更新状态
+            for (Integer memberId : room.getPlayers()) {
+                playerInRoomMap.remove(memberId);
+                onlineUserService.updateUserStatus(memberId, UserStatus.ONLINE);
+            }
+            // 销毁房间
+            customRooms.remove(roomId);
+            return CommonResponse.createForSuccessMessage("您是房主，房间已解散");
+        }
+
+        // --- 如果不是房主，执行普通退出逻辑 ---
+        room.removePlayer(userId);
+        playerInRoomMap.remove(userId);
+        onlineUserService.updateUserStatus(userId, UserStatus.ONLINE);
+
+        System.out.println("玩家 " + userId + " 离开了房间 " + roomId);
+        notifyRoomMembers(roomId, Map.of("type", "player_left", "userId", userId));
+
+        return CommonResponse.createForSuccessMessage("已成功退出房间");
+    }
+
     private void notifyRoomMembers(String roomId, Object payload) {
         MatchmakingRoom room = customRooms.get(roomId);
         if (room != null) {

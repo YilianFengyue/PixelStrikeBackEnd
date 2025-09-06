@@ -38,4 +38,11 @@ public class CustomRoomController {
         Integer userId = (Integer) request.getAttribute("userId");
         return customRoomService.startRoom(roomId, userId);
     }
+
+    // 离开房间
+    @PostMapping("/leave")
+    public CommonResponse<?> leaveRoom(HttpServletRequest request) {
+        Integer userId = (Integer) request.getAttribute("userId");
+        return customRoomService.leaveRoom(userId);
+    }
 }
