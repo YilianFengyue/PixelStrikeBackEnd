@@ -155,22 +155,39 @@
             });
             const result = await response.json();
             if (response.ok && result.status === 0) {
-                onLoginSuccess(username, result.data);
+                const loginData = result.data;
+                authToken = loginData.token; // 保存Token
+                log(`登录成功! Token已保存。`);
+
+                // --- 核心修改：统一登录后的初始化流程 ---
+                // 1. 隐藏登录框，显示大厅UI
+                document.getElementById('login-section').style.display = 'none';
+                showLobbyView();
+
+                // 2. 必须连接到大厅WebSocket
+                connectLobbySocket();
+
+                // 3. 获取基本信息
+                fetchMyProfile();
+                fetchFriends();
+                fetchMatchHistory();
+
+                // 4. 如果有需要重连的游戏，则在完成上述所有操作后，再连接到游戏
+                if (loginData.activeGameId) {
+                    log(`<b>检测到您有未完成的对局，正在尝试重连...</b>`, 'success');
+                    lastGameId = loginData.activeGameId;
+
+                    // 隐藏不必要的UI元素，模仿正常匹配成功后的场景
+                    document.getElementById('results-section').style.display = 'none';
+                    document.getElementById('start-match-btn').disabled = true;
+
+                    connectGameWebSocket(loginData.activeGameId);
+                }
+
             } else { throw new Error(result.message); }
         } catch (error) { log(`登录失败: ${error.message}`, 'error'); }
     }
 
-    function onLoginSuccess(username, token) {
-        authToken = token;
-        log(`登录成功!`);
-        document.getElementById('login-section').style.display = 'none';
-        showLobbyView(); // 使用新的函数来显示大厅
-
-        connectLobbySocket();
-        fetchMyProfile();
-        fetchFriends();
-        fetchMatchHistory(); // 登录成功后立刻获取历史战绩
-    }
 
     function showLobbyView() {
         document.getElementById('matchmaking-section').style.display = 'block';
@@ -455,6 +472,11 @@
             if (msg.type === 'welcome') {
                 myPlayerId = msg.playerId;
                 log(`<b>成功识别我的玩家ID: ${myPlayerId.substring(0, 8)}</b>`, 'success');
+
+                // <<<<< 核心修复：收到欢迎消息，立即启用控制 >>>>>
+                log('重连成功，已启用角色控制。', 'success');
+                controlsEnabled = true;
+
                 return;
             }
             if (msg.type === 'pong') {
@@ -479,6 +501,9 @@
             setTimeout(() => {
                 log('正在返回大厅...');
                 showLobbyView(); // 调用UI切换函数返回大厅
+
+                document.getElementById('start-match-btn').disabled = false;
+                document.getElementById('cancel-match-btn').disabled = true;
 
                 // 3. 自动刷新历史战绩列表
                 fetchMatchHistory();

@@ -14,6 +14,7 @@ import org.csu.pixelstrikebackend.lobby.mapper.MatchParticipantMapper;
 import org.csu.pixelstrikebackend.lobby.mapper.UserProfileMapper;
 import org.csu.pixelstrikebackend.lobby.service.MatchmakingService;
 import org.csu.pixelstrikebackend.lobby.service.OnlineUserService;
+import org.csu.pixelstrikebackend.lobby.service.PlayerSessionService;
 import org.csu.pixelstrikebackend.lobby.websocket.WebSocketSessionManager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -41,9 +42,13 @@ public class MatchmakingServiceImpl implements MatchmakingService {
     @Autowired private GameLobbyBridge gameLobbyBridge; // 注入桥接实现
     @Autowired private MatchParticipantMapper matchParticipantMapper;
     @Autowired private GameConfig gameConfig;
+    @Autowired private PlayerSessionService playerSessionService;
 
     @Override
     public synchronized CommonResponse<?> startMatchmaking(Integer userId) {
+        if (playerSessionService.isPlayerInGame(userId)) {
+            return CommonResponse.createForError("您已在游戏中，无法开始新的匹配");
+        }
         if (playerRoomMap.containsKey(userId)) {
             return CommonResponse.createForError("您已经在匹配队列中");
         }
@@ -122,30 +127,6 @@ public class MatchmakingServiceImpl implements MatchmakingService {
         return null;
     }
 
-    /*private void notifyMatchSuccess(MatchmakingRoom room) {
-        String gameServerAddress = "ws://127.0.0.1:8080/game";
-        String gameId = UUID.randomUUID().toString();
-
-        Map<String, Object> successMessage = Map.of(
-                "type", "match_success",
-                "gameId", gameId,
-                "serverAddress", gameServerAddress
-        );
-
-        for (Integer playerId : room.getPlayers()) {
-            // 清理玩家的匹配状态映射
-            playerRoomMap.remove(playerId);
-
-            // **核心步骤1：修改在线用户表，将玩家状态更新为“游戏中”**
-            onlineUserService.updateUserStatus(playerId, UserStatus.IN_GAME);
-
-            // **核心步骤2：将新的“游戏中”状态广播给该玩家的在线好友**
-            notifyFriendsAboutStatusChange(playerId, "IN_GAME");
-
-            // 步骤3：向该玩家自己发送匹配成功的消息
-            webSocketSessionManager.sendMessageToUser(playerId, successMessage);
-        }
-    }*/
     private void notifyMatchSuccess(MatchmakingRoom room) {
         // **核心改动1: 先在 matches 表中创建对局记录，获取唯一的 BIGINT gameId**
         Match newMatch = new Match();
@@ -159,6 +140,10 @@ public class MatchmakingServiceImpl implements MatchmakingService {
         // 2. 通过桥接器通知游戏模块，对局已创建
         List<Integer> playerIds = room.getPlayers().stream().toList();
         gameLobbyBridge.onMatchSuccess(gameId, playerIds);
+
+        for (Integer playerId : playerIds) {
+            playerSessionService.registerPlayerInGame(playerId, gameId);
+        }
 
         // 模拟游戏服务器信息
         String gameServerAddress = "ws://127.0.0.1:8080/game";
@@ -217,7 +202,10 @@ public class MatchmakingServiceImpl implements MatchmakingService {
         for (MatchParticipant result : results) {
             matchParticipantMapper.insert(result);
 
-            // 【新增】更新UserProfile
+            // 游戏结束，移除玩家会话
+            playerSessionService.removePlayerFromGame(result.getUserId());
+
+            // 更新UserProfile
             UserProfile profile = userProfileMapper.selectById(result.getUserId());
             if (profile != null) {
                 profile.setTotalMatches(profile.getTotalMatches() + 1);

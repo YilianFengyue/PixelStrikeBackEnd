@@ -3,6 +3,7 @@ package org.csu.pixelstrikebackend.lobby.controller;
 import jakarta.validation.Valid;
 import org.csu.pixelstrikebackend.lobby.common.CommonResponse;
 import org.csu.pixelstrikebackend.lobby.dto.LoginRequest;
+import org.csu.pixelstrikebackend.lobby.dto.LoginResponseDTO;
 import org.csu.pixelstrikebackend.lobby.dto.RegisterRequest;
 import org.csu.pixelstrikebackend.lobby.entity.User;
 import org.csu.pixelstrikebackend.lobby.entity.UserProfile;
@@ -37,7 +38,7 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public CommonResponse<String> login(@Valid @RequestBody LoginRequest loginRequest) {
+    public CommonResponse<LoginResponseDTO> login(@Valid @RequestBody LoginRequest loginRequest) {
         return authService.login(loginRequest);
     }
 

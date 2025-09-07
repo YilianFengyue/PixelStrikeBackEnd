@@ -9,6 +9,7 @@ import org.csu.pixelstrikebackend.lobby.enums.UserStatus;
 import org.csu.pixelstrikebackend.lobby.mapper.MatchMapper;
 import org.csu.pixelstrikebackend.lobby.service.CustomRoomService;
 import org.csu.pixelstrikebackend.lobby.service.OnlineUserService;
+import org.csu.pixelstrikebackend.lobby.service.PlayerSessionService;
 import org.csu.pixelstrikebackend.lobby.websocket.WebSocketSessionManager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -29,6 +30,7 @@ public class CustomRoomRoomServiceImpl implements CustomRoomService {
     @Autowired private GameLobbyBridge gameLobbyBridge;
     @Autowired private MatchMapper matchMapper;
     @Autowired private GameConfig gameConfig;
+    @Autowired private PlayerSessionService playerSessionService;
 
     public CommonResponse<Map<String, String>> createRoom(Integer hostId) {
         if (playerInRoomMap.containsKey(hostId)) {
@@ -92,6 +94,10 @@ public class CustomRoomRoomServiceImpl implements CustomRoomService {
         // 2. 通知游戏模块准备房间
         List<Integer> playerIds = room.getPlayers().stream().toList();
         gameLobbyBridge.onMatchSuccess(gameId, playerIds);
+
+        for (Integer playerId : playerIds) {
+            playerSessionService.registerPlayerInGame(playerId, gameId);
+        }
 
         // 3. 通知所有房间内玩家进入游戏
         Map<String, Object> successMessage = Map.of(
