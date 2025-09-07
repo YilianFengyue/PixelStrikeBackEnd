@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>PixelStrike 全功能测试台 (v3)</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; justify-content: center; align-items: flex-start; padding: 20px; background-color: #f4f7f9; gap: 20px; }
+        .panel { background-color: #ffffff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); padding: 25px; }
+        .controls { min-width: 320px; }
+        .game-container { position: relative; } /* For HUD positioning */
+        canvas { background-color: #d0e7ff; border: 2px solid #333; display: block; }
+        h2 { border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; margin-top: 0; color: #333; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; color: #555; font-weight: 500; }
+        input { width: calc(100% - 20px); padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        button { width: 100%; padding: 12px; background-color: #007bff; color: white; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; transition: background-color 0.2s; margin-top: 5px; }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #a0a0a0; cursor: not-allowed; }
+        .log-container { height: 250px; overflow-y: auto; border: 1px solid #ddd; background-color: #fdfdfd; padding: 15px; font-family: "Courier New", Courier, monospace; font-size: 13px; line-height: 1.5; margin-top: 15px; }
+        .log-entry { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px dashed #eee; word-break: break-all; }
+        .log-entry.error { color: #D8000C; } .log-entry.success { color: #4F8A10; } .log-entry.ws { color: #551A8B; }
+        .status-badge { padding: 4px 8px; border-radius: 12px; color: white; font-size: 12px; margin-left: 10px; display: inline-block; }
+        .status-connected { background-color: #28a745; } .status-disconnected { background-color: #dc3545; }
+        .friend-list { list-style: none; padding: 0; max-height: 300px; overflow-y: auto; }
+        .friend-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid #eee; }
+        .friend-status { font-size: 12px; padding: 3px 8px; border-radius: 10px; color: white; }
+        .status-ONLINE { background-color: #28a745; } .status-OFFLINE { background-color: #6c757d; } .status-IN_GAME { background-color: #ffc107; color: #000 } .status-MATCHING { background-color: #17a2b8; }
+        #hud { position: absolute; top: 10px; left: 10px; color: white; font-size: 20px; font-weight: bold; text-shadow: 2px 2px 4px #000; }
+        #game-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; background-color: rgba(0,0,0,0.3); color: white; font-size: 80px; font-weight: bold; text-shadow: 3px 3px 6px #000; pointer-events: none; visibility: hidden; }
+        #results-container { margin-top: 15px; }
+        .results-table { width: 100%; border-collapse: collapse; }
+        .results-table th, .results-table td { border: 1px solid #ddd; padding: 8px; text-align: left;}
+        .results-table th { background-color: #f2f2f2; }
+    </style>
+</head>
+<body>
+
+<div class="panel controls">
+    <div id="login-section">
+        <h2>1. 登录</h2>
+        <div class="form-group"><label for="login-username">用户名:</label><input type="text" id="login-username" value="player_one"></div>
+        <div class="form-group"><label for="login-password">密码:</label><input type="password" id="login-password" value="password123"></div>
+        <button onclick="loginUser()">登录</button>
+    </div>
+    <div id="matchmaking-section" style="display: none;">
+        <h2>2. 匹配与游戏</h2>
+        <p>已登录: <b id="current-user"></b></p>
+        <button id="start-match-btn" onclick="startMatchmaking()">开始匹配</button>
+        <button id="cancel-match-btn" onclick="cancelMatchmaking()" disabled>取消匹配</button>
+        <div style="margin-top: 20px;">
+            <h3>操作说明:</h3>
+            <p><b>A / D</b>: 左右移动 | <b>W / 空格</b>: 跳跃 | <b>J</b>: 开火</p>
+        </div>
+    </div>
+</div>
+
+<div class="panel game-container">
+    <h2>游戏场景</h2>
+    <canvas id="game-canvas" width="800" height="600"></canvas>
+    <div id="hud"></div>
+    <div id="game-overlay"></div>
+</div>
+
+
+<div class="panel" style="min-width: 400px;">
+    <h2>大厅信息</h2>
+    <p>大厅连接状态: <span id="lobby-ws-status" class="status-badge status-disconnected">未连接</span></p>
+    <div id="friends-section" style="display: none;">
+        <h3>好友列表</h3>
+        <ul id="friend-list" class="friend-list"></ul>
+    </div>
+    <div id="results-section" style="display: none;">
+        <h3 id="results-title">对局战绩</h3>
+        <div id="results-container"></div>
+    </div>
+    <h2>日志输出</h2>
+    <div class="log-container" id="log-container"></div>
+</div>
+
+
+<script>
+    const API_BASE_URL = 'http://localhost:8080';
+    const WS_BASE_URL = 'ws://localhost:8080';
+
+    let authToken = null;
+    let lobbySocket = null, gameSocket = null;
+    let myPlayerId = null;
+    let lastGameId = null;
+    let ping = 0;
+
+    let gameState = { players: {} };
+    const keys = { a: false, d: false, w: false, " ": false, j: false };
+    let controlsEnabled = false;
+
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d');
+    const logContainer = document.getElementById('log-container');
+    const hud = document.getElementById('hud');
+    const gameOverlay = document.getElementById('game-overlay');
+
+    function log(message, type = 'info') {
+        const entry = document.createElement('div');
+        entry.className = `log-entry ${type}`;
+        entry.innerHTML = `[${new Date().toLocaleTimeString()}] ${message.replace(/</g, "&lt;").replace(/>/g, "&gt;")}`;
+        logContainer.prepend(entry);
+    }
+
+    // --- 1. 认证与大厅连接 ---
+    async function loginUser() {
+        const username = document.getElementById('login-username').value;
+        const password = document.getElementById('login-password').value;
+        log(`登录用户: ${username}`);
+        try {
+            const response = await fetch(`${API_BASE_URL}/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            const result = await response.json();
+            if (response.ok && result.status === 0) {
+                onLoginSuccess(username, result.data);
+            } else { throw new Error(result.message); }
+        } catch (error) { log(`登录失败: ${error.message}`, 'error'); }
+    }
+
+    function onLoginSuccess(username, token) {
+        authToken = token;
+        log(`登录成功!`);
+        document.getElementById('matchmaking-section').style.display = 'block';
+        document.getElementById('friends-section').style.display = 'block';
+        document.getElementById('current-user').innerText = username;
+        document.getElementById('login-section').style.display = 'none';
+        connectLobbySocket();
+        fetchFriends();
+    }
+
+    function connectLobbySocket() {
+        const lobbyWsUrl = `${WS_BASE_URL}/ws?token=${authToken}`;
+        log(`连接到大厅...`);
+        lobbySocket = new WebSocket(lobbyWsUrl);
+        lobbySocket.onopen = () => {
+            log('大厅连接成功!', 'success');
+            document.getElementById('lobby-ws-status').textContent = '已连接';
+            document.getElementById('lobby-ws-status').className = 'status-badge status-connected';
+        };
+        lobbySocket.onmessage = (event) => {
+            const msg = JSON.parse(event.data);
+            log(`收到大厅通知: <pre>${JSON.stringify(msg, null, 2)}</pre>`, 'ws');
+            switch(msg.type) {
+                case 'match_success':
+                    log(`<b>匹配成功!</b> 准备进入游戏...`, 'success');
+                    lastGameId = msg.gameId;
+                    connectGameWebSocket(msg.gameId);
+                    document.getElementById('start-match-btn').disabled = false;
+                    document.getElementById('cancel-match-btn').disabled = true;
+                    document.getElementById('results-section').style.display = 'none';
+                    break;
+                case 'status_update': updateFriendStatus(msg.userId, msg.status); break;
+                case 'new_friend_request': alert(`收到来自 ${msg.senderNickname} 的好友请求!`); break;
+                case 'friend_request_accepted':
+                    alert(`${msg.acceptorNickname} 已接受您的好友请求!`);
+                    fetchFriends();
+                    break;
+            }
+        };
+        lobbySocket.onclose = () => {
+            log('大厅连接断开。', 'error');
+            document.getElementById('lobby-ws-status').textContent = '未连接';
+            document.getElementById('lobby-ws-status').className = 'status-badge status-disconnected';
+        };
+    }
+
+    // --- 2. 好友系统 ---
+    async function fetchFriends() {
+        log('正在获取好友列表...');
+        try {
+            const response = await fetch(`${API_BASE_URL}/friends`, { headers: { 'Authorization': `Bearer ${authToken}` } });
+            const result = await response.json();
+            if (result.status === 0) {
+                const friendList = document.getElementById('friend-list');
+                friendList.innerHTML = '';
+                if (!result.data || result.data.length === 0) {
+                    friendList.innerHTML = '<li>没有好友</li>'; return;
+                }
+                result.data.forEach(friend => {
+                    const li = document.createElement('li');
+                    li.className = 'friend-item';
+                    li.id = `friend-${friend.userId}`;
+                    li.innerHTML = `<span>${friend.nickname}</span><span class="friend-status status-${friend.onlineStatus || 'OFFLINE'}">${friend.onlineStatus || '离线'}</span>`;
+                    friendList.appendChild(li);
+                });
+            } else { throw new Error(result.message); }
+        } catch(error) { log(`获取好友列表失败: ${error.message}`, 'error'); }
+    }
+
+    function updateFriendStatus(userId, status) {
+        const friendItem = document.getElementById(`friend-${userId}`);
+        if (friendItem) {
+            const statusBadge = friendItem.querySelector('.friend-status');
+            statusBadge.className = `friend-status status-${status || 'OFFLINE'}`;
+            statusBadge.textContent = status || '离线';
+        }
+    }
+
+    // --- 3. 匹配与游戏连接 ---
+    async function startMatchmaking() {
+        log('请求开始匹配...');
+        document.getElementById('start-match-btn').disabled = true;
+        document.getElementById('cancel-match-btn').disabled = false;
+        await fetch(`${API_BASE_URL}/matchmaking/start`, { method: 'POST', headers: { 'Authorization': `Bearer ${authToken}` } });
+    }
+    async function cancelMatchmaking() {
+        log('请求取消匹配...');
+        document.getElementById('start-match-btn').disabled = false;
+        document.getElementById('cancel-match-btn').disabled = true;
+        await fetch(`${API_BASE_URL}/matchmaking/cancel`, { method: 'POST', headers: { 'Authorization': `Bearer ${authToken}` } });
+    }
+
+    function connectGameWebSocket(gameId) {
+        if(gameSocket) gameSocket.close();
+
+        const gameWsUrl = `${WS_BASE_URL}/game?gameId=${gameId}&token=${authToken}`;
+        log(`连接到游戏...`);
+        gameSocket = new WebSocket(gameWsUrl);
+
+        gameSocket.onopen = () => {
+            log('游戏连接成功!', 'success');
+            controlsEnabled = false; // 初始时禁用控制
+        };
+        gameSocket.onmessage = (event) => {
+            const msg = JSON.parse(event.data);
+
+            // 【修改】处理多种消息类型
+            switch(msg.type) {
+                case 'welcome':
+                    myPlayerId = msg.playerId;
+                    log(`<b>成功识别我的玩家ID: ${myPlayerId.substring(0, 8)}</b>`, 'success');
+                    break;
+                case 'pong':
+                    ping = Date.now() - msg.timestamp.getAsLong(); // 计算ping值
+                    break;
+                default:
+                    // 如果没有type，则认为是游戏快照
+                    gameState = msg;
+            }
+        };
+        gameSocket.onclose = () => {
+            log('游戏连接断开 (游戏结束)。', 'error');
+            myPlayerId = null;
+            controlsEnabled = false;
+            gameOverlay.textContent = "GAME OVER";
+            gameOverlay.style.visibility = 'visible';
+            if (lastGameId) {
+                fetchMatchResults(); // 自动查询战绩
+            }
+        };
+    }
+    setInterval(() => {
+        if (gameSocket && gameSocket.readyState === WebSocket.OPEN) {
+            gameSocket.send(JSON.stringify({
+                type: 'ping',
+                timestamp: Date.now()
+            }));
+        }
+    }, 2000); // 每2秒发送一次ping
+
+    // --- 4. 客户端输入与渲染 ---
+    window.addEventListener('keydown', (e) => { if (keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = true; });
+    window.addEventListener('keyup', (e) => { if (keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = false; });
+
+    setInterval(() => {
+        if (!gameSocket || gameSocket.readyState !== WebSocket.OPEN || !controlsEnabled) return; // 如果控制被禁用，则不发送指令
+        let moveInput = 0;
+        if (keys.d) moveInput = 1; if (keys.a) moveInput = -1;
+        let actions = 0;
+        if (keys.w || keys[' ']) actions |= 1;
+        if (keys.j) actions |= 2;
+        gameSocket.send(JSON.stringify({ moveInput, actions }));
+        keys.w = keys[' '] = keys.j = false;
+    }, 50);
+
+    function gameLoop() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#785b40';
+        ctx.fillRect(0, 500, canvas.width, 100);
+
+        if (gameState.players) {
+            for (const playerId in gameState.players) {
+                const p = gameState.players[playerId];
+                ctx.fillStyle = (playerId === myPlayerId) ? '#007bff' : '#dc3545';
+                ctx.fillRect(p.x - 20, p.y - 40, 40, 40);
+
+                ctx.fillStyle = '#f00'; ctx.fillRect(p.x - 20, p.y - 55, 40, 5);
+                ctx.fillStyle = '#0f0'; ctx.fillRect(p.x - 20, p.y - 55, 40 * (p.health / 100), 5);
+
+                ctx.fillStyle = '#000'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+                ctx.fillText(p.currentAction, p.x, p.y - 65);
+            }
+        }
+
+        // --- 核心修改：处理倒计时和游戏状态 ---
+        if (gameState.countdownSeconds != null && gameState.countdownSeconds > 0) {
+            gameOverlay.textContent = gameState.countdownSeconds;
+            gameOverlay.style.visibility = 'visible';
+            controlsEnabled = false; // 倒计时期间禁用控制
+        } else if (gameState.countdownSeconds === 0) {
+            gameOverlay.textContent = "START!";
+            gameOverlay.style.visibility = 'visible';
+            controlsEnabled = true; // 倒计时结束，启用控制
+            // 延迟一秒后隐藏 "START!"
+            setTimeout(() => { gameOverlay.style.visibility = 'hidden'; }, 1000);
+        }
+
+        if (myPlayerId && gameState.players[myPlayerId]) {
+            const me = gameState.players[myPlayerId];
+            hud.innerHTML = `HP: ${me.health} | Ammo: ${me.ammo} | K/D: ${me.kills}/${me.deaths} | Ping: ${ping}ms`;
+        } else {
+            hud.innerHTML = '等待加入游戏...';
+        }
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    // 查询战绩的函数
+    async function fetchMatchResults() {
+        if (!lastGameId) { log('没有可查询的上局游戏ID。', 'error'); return; }
+        log(`正在查询游戏 [${lastGameId}] 的战绩...`);
+        try {
+            const response = await fetch(`${API_BASE_URL}/matches/${lastGameId}/results`, { headers: { 'Authorization': `Bearer ${authToken}` } });
+            const result = await response.json();
+            if (result.status === 0) {
+                log('战绩查询成功!', 'success');
+                const resultsContainer = document.getElementById('results-container');
+                let tableHTML = '<table class="results-table"><tr><th>排名</th><th>玩家昵称</th><th>击杀</th><th>死亡</th></tr>';
+                result.data.forEach(p => {
+                    tableHTML += `<tr><td>${p.ranking}</td><td>${p.nickname}</td><td>${p.kills}</td><td>${p.deaths}</td></tr>`;
+                });
+                tableHTML += '</table>';
+                resultsContainer.innerHTML = tableHTML;
+                document.getElementById('results-section').style.display = 'block';
+                document.getElementById('results-title').innerText = `对局 [${lastGameId}] 战绩`;
+            } else { throw new Error(result.message); }
+        } catch (error) {
+            log(`查询战绩失败: ${error.message}`, 'error');
+            document.getElementById('results-container').innerHTML = `<p style="color:red;">查询失败</p>`;
+            document.getElementById('results-section').style.display = 'block';
+        }
+    }
+
+    gameLoop();
+</script>
+</body>
+</html>

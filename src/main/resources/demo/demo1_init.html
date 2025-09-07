@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>PixelStrike 可视化物理测试Demo</title>
+    <style>
+        body { font-family: sans-serif; display: flex; justify-content: center; align-items: flex-start; padding: 20px; background-color: #f0f0f0; gap: 20px; }
+        .panel { background-color: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); padding: 20px; }
+        .controls { min-width: 300px; }
+        .game-container { text-align: center; }
+        canvas { background-color: #d0e7ff; border: 2px solid #333; }
+        h2 { border-bottom: 1px solid #e0e0e0; padding-bottom: 10px; margin-top: 0; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input { width: calc(100% - 20px); padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+        button { width: 100%; padding: 10px; background-color: #007bff; color: white; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #aaa; }
+        #log-container { height: 200px; overflow-y: auto; border: 1px solid #ddd; background-color: #f8f8f8; padding: 10px; font-family: monospace; font-size: 12px; margin-top: 15px; }
+        .log-entry.error { color: #D8000C; }
+        .status-badge { padding: 4px 8px; border-radius: 12px; color: white; font-size: 12px; }
+        .status-connected { background-color: #28a745; }
+        .status-disconnected { background-color: #dc3545; }
+        .form-group.inline { display: flex; align-items: center; gap: 10px; }
+        .form-group.inline input { flex-grow: 1; }
+        button { margin-top: 5px; } /* 稍微调整按钮间距 */
+        #custom-room-display { border-top: 1px solid #e0e0e0; margin-top: 20px; padding-top: 15px; }
+        #player-list { padding-left: 0; } /* 移除列表的默认内边距 */
+        #player-list li { list-style: none; padding: 5px; border-bottom: 1px solid #f0f0f0; }
+        #player-list li:last-child { border-bottom: none; }
+    </style>
+</head>
+<body>
+
+<div class="panel controls">
+    <div id="login-section">
+        <h2>1. 登录</h2>
+        <div class="form-group">
+            <label for="login-username">用户名:</label>
+            <input type="text" id="login-username" value="player_one">
+        </div>
+        <div class="form-group">
+            <label for="login-password">密码:</label>
+            <input type="password" id="login-password" value="password123">
+        </div>
+        <button onclick="loginUser()">登录</button>
+    </div>
+
+    <!--<div id="room-section" style="display: none;">
+        <h2>2. 加入游戏</h2>
+        <p>已登录: <b id="current-user"></b></p>
+        <button id="start-match-btn" onclick="startMatchmaking()">开始匹配</button>
+        <button id="cancel-match-btn" onclick="cancelMatchmaking()" disabled>取消匹配</button>
+    </div>-->
+    <div id="lobby-section" style="display: none;">
+        <h2>2. 大厅</h2>
+        <p>已登录: <b id="current-user"></b></p>
+        <hr>
+
+        <h3>快速匹配</h3>
+        <button id="start-match-btn" onclick="startMatchmaking()">开始匹配</button>
+        <button id="cancel-match-btn" onclick="cancelMatchmaking()" disabled>取消匹配</button>
+        <hr>
+
+        <h3>自定义房间</h3>
+        <button id="create-room-btn" onclick="createRoom()">创建房间</button>
+        <div class="form-group inline">
+            <input type="text" id="join-room-id-input" placeholder="输入房间ID">
+            <button id="join-room-btn" onclick="joinRoom()" style="width: auto; padding: 8px 15px;">加入</button>
+        </div>
+    </div>
+
+    <div id="custom-room-display" style="display: none;">
+        <h2>房间信息</h2>
+        <p>房间ID: <b id="room-id-display"></b></p>
+        <ul id="player-list"></ul>
+        <button id="start-game-btn" onclick="startGame()" disabled>开始游戏</button>
+        <button id="leave-room-btn" onclick="leaveRoom()">离开房间</button>
+    </div>
+
+    <div id="info-section" style="display: none; margin-top: 20px;">
+        <h2>游戏信息</h2>
+        <p>WebSocket: <span id="ws-status" class="status-badge status-disconnected">未连接</span></p>
+        <p>我的玩家ID: <b id="my-player-id">N/A</b></p>
+        <h3>操作说明:</h3>
+        <p><b>A / D</b>: 左右移动</p>
+        <p><b>W / 空格</b>: 跳跃 / 二段跳</p>
+        <p><b>J</b>: 向当前朝向开火</p>
+    </div>
+    <div id="log-container"></div>
+</div>
+
+<div class="panel game-container">
+    <h2>游戏场景</h2>
+    <canvas id="game-canvas" width="800" height="600"></canvas>
+</div>
+
+<script>
+    const API_BASE_URL = 'http://localhost:8080';
+    const WS_BASE_URL = 'ws://localhost:8080';
+    let authToken = null;
+    let gameSocket = null;
+    let lobbySocket = null;
+    let myPlayerId = null; // 将存储 userId 的字符串形式
+    let currentRoom = null;
+    let gameState = { players: {} };
+    const keys = { a: false, d: false, w: false, " ": false, j: false };
+
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d');
+
+    const logContainer = document.getElementById('log-container');
+
+    function log(message, type = 'info') {
+        const entry = document.createElement('div');
+        entry.className = `log-entry ${type}`;
+        entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+        logContainer.prepend(entry);
+    }
+
+    // --- API & WebSocket Logic ---
+    async function loginUser() {
+        const username = document.getElementById('login-username').value;
+        const password = document.getElementById('login-password').value;
+        log(`登录用户: ${username}`);
+        try {
+            const response = await fetch(`${API_BASE_URL}/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            const result = await response.json();
+            if (response.ok && result.status === 0) {
+                onLoginSuccess(username, result.data);
+            } else { throw new Error(result.message); }
+        } catch (error) { log(`登录失败: ${error.message}`, 'error'); }
+    }
+
+    /*function onLoginSuccess(username, token) {
+        authToken = token;
+        log(`登录成功!`);
+        document.getElementById('room-section').style.display = 'block';
+        document.getElementById('info-section').style.display = 'block';
+        document.getElementById('current-user').innerText = username;
+        connectLobbySocket();
+    }*/
+    function onLoginSuccess(username, token) {
+        authToken = token;
+        // 新增: 从Token解析ID
+        const decodedToken = parseJwt(authToken);
+        if (decodedToken && decodedToken.userId) {
+            myPlayerId = decodedToken.userId.toString();
+        }
+        log(`登录成功! 我的ID: ${myPlayerId}`);
+        document.getElementById('login-section').style.display = 'none';
+        document.getElementById('lobby-section').style.display = 'block'; // 修改ID
+        document.getElementById('info-section').style.display = 'block';
+        document.getElementById('current-user').innerText = username;
+        connectLobbySocket();
+    }
+
+    function connectLobbySocket() {
+        const lobbyWsUrl = `${WS_BASE_URL}/ws?token=${authToken}`;
+        log(`连接到大厅: ${lobbyWsUrl}`);
+        lobbySocket = new WebSocket(lobbyWsUrl);
+
+        lobbySocket.onopen = () => log('大厅连接成功!');
+        lobbySocket.onclose = () => log('大厅连接断开。', 'error');
+        lobbySocket.onmessage = (event) => {
+            const message = JSON.parse(event.data);
+            log(`收到大厅消息: ${JSON.stringify(message)}`);
+
+            /*if (message.type === 'match_success') {
+                log(`匹配成功! 游戏ID: ${message.gameId}. 准备连接游戏服务器...`);
+                connectGameWebSocket(message.gameId);
+                document.getElementById('start-match-btn').disabled = false;
+                document.getElementById('cancel-match-btn').disabled = true;
+            }*/
+            // 修改: 合并匹配成功和游戏开始的逻辑
+            if (message.type === 'match_success' || message.type === 'game_start') {
+                const gameId = message.gameId;
+                log(`游戏即将开始! 游戏ID: ${gameId}.`);
+                connectGameWebSocket(gameId);
+                // 隐藏大厅和房间界面
+                document.getElementById('lobby-section').style.display = 'none';
+                document.getElementById('custom-room-display').style.display = 'none';
+            }
+
+            // 新增: 处理房间状态更新
+            if (message.type === 'room_update') {
+                updateRoomDisplay(message.room);
+            }
+
+            // 新增: 处理房间解散或被踢
+            if (message.type === 'room_disbanded' || message.type === 'kicked_from_room') {
+                alert(message.type === 'kicked_from_room' ? '你已被房主踢出房间' : '房主已解散房间');
+                exitRoomView();
+            }
+
+            if (message.type === 'game_results') {
+                log('--- 游戏结束 ---', 'info');
+                log(`对局ID: ${message.gameId}`);
+                message.results.forEach(p => {
+                    log(`玩家ID: ${p.userId}, 排名: ${p.ranking}, K/D: ${p.kills}/${p.deaths}`);
+                });
+                log('----------------', 'info');
+            }
+        };
+    }
+
+    async function startMatchmaking() {
+        log('请求开始匹配...');
+        document.getElementById('start-match-btn').disabled = true;
+        document.getElementById('cancel-match-btn').disabled = false;
+        try {
+            await fetch(`${API_BASE_URL}/matchmaking/start`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+        } catch(error) { log(`开始匹配失败: ${error.message}`, 'error');}
+    }
+
+    async function cancelMatchmaking() {
+        log('请求取消匹配...');
+        document.getElementById('start-match-btn').disabled = false;
+        document.getElementById('cancel-match-btn').disabled = true;
+        try {
+            await fetch(`${API_BASE_URL}/matchmaking/cancel`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+        } catch(error) { log(`取消匹配失败: ${error.message}`, 'error');}
+    }
+
+    // --- 自定义房间相关 ---
+    async function createRoom() {
+        log('请求创建房间...');
+        try {
+            const response = await fetch(`${API_BASE_URL}/custom-room/create`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+            const result = await response.json();
+            if(response.ok && result.status === 0) {
+                log(`房间创建成功, ID: ${result.data}`);
+                // 成功后，后端会通过WebSocket推送房间信息，由onmessage处理界面更新
+            } else {
+                throw new Error(result.message);
+            }
+        } catch(error) { log(`创建房间失败: ${error.message}`, 'error');}
+    }
+
+    async function joinRoom() {
+        const roomId = document.getElementById('join-room-id-input').value;
+        if (!roomId) { alert('请输入房间ID'); return; }
+        log(`请求加入房间: ${roomId}`);
+        try {
+            const response = await fetch(`${API_BASE_URL}/custom-room/join?roomId=${roomId}`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+            const result = await response.json();
+            if(response.ok && result.status === 0) {
+                log(`加入房间成功: ${roomId}`);
+            } else {
+                throw new Error(result.message);
+            }
+        } catch(error) { log(`加入房间失败: ${error.message}`, 'error');}
+    }
+
+    async function leaveRoom() {
+        log('请求离开房间...');
+        try {
+            await fetch(`${API_BASE_URL}/custom-room/leave`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+            exitRoomView();
+        } catch(error) { log(`离开房间失败: ${error.message}`, 'error');}
+    }
+
+    async function startGame() {
+        log('房主请求开始游戏...');
+        try {
+            await fetch(`${API_BASE_URL}/custom-room/start-game`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+            // 成功后，后端会通过WebSocket推送game_start消息
+        } catch(error) { log(`开始游戏失败: ${error.message}`, 'error');}
+    }
+
+    function updateRoomDisplay(roomData) {
+        currentRoom = roomData;
+        document.getElementById('lobby-section').style.display = 'none';
+        document.getElementById('custom-room-display').style.display = 'block';
+        document.getElementById('room-id-display').textContent = roomData.roomId;
+
+        const playerList = document.getElementById('player-list');
+        playerList.innerHTML = '';
+        roomData.players.forEach(p => {
+            const li = document.createElement('li');
+            li.textContent = `${p.nickname} (ID: ${p.userId}) ${p.isHost ? '👑' : ''}`;
+            playerList.appendChild(li);
+        });
+
+        const amIHost = roomData.hostId.toString() === myPlayerId;
+        const isRoomFull = roomData.players.length === roomData.maxSize;
+        document.getElementById('start-game-btn').disabled = !(amIHost && isRoomFull);
+    }
+
+    function exitRoomView() {
+        currentRoom = null;
+        document.getElementById('lobby-section').style.display = 'block';
+        document.getElementById('custom-room-display').style.display = 'none';
+    }
+
+    /*function connectGameWebSocket(gameId) {
+        // --- Bug 1 修复: 从Token中解析出自己的userId ---
+        const decodedToken = parseJwt(authToken);
+        if (decodedToken && decodedToken.userId) {
+            myPlayerId = decodedToken.userId.toString(); // 后端PlayerState中的playerId是String
+            log(`已确认我的玩家ID: ${myPlayerId}`);
+            document.getElementById('my-player-id').textContent = myPlayerId;
+        } else {
+            log('无法从Token中解析userId!', 'error');
+        }
+
+        const wsUrl = `${WS_BASE_URL}/game?gameId=${gameId}&token=${authToken}`;
+        log(`连接到游戏: ${wsUrl}`);
+        gameSocket = new WebSocket(wsUrl);
+
+        gameSocket.onopen = () => {
+            log('游戏WebSocket连接成功!');
+            document.getElementById('ws-status').textContent = '已连接';
+            document.getElementById('ws-status').className = 'status-badge status-connected';
+        };
+
+        gameSocket.onmessage = (event) => {
+            gameState = JSON.parse(event.data);
+            // --- Bug 1 修复: 移除错误的ID猜测逻辑 ---
+            // if (!myPlayerId && ...) { ... }
+        };
+        gameSocket.onclose = () => {
+            log('游戏WebSocket连接断开。', 'info'); // 改为info，因为这是正常流程
+            document.getElementById('ws-status').textContent = '未连接';
+            document.getElementById('ws-status').className = 'status-badge status-disconnected';
+            myPlayerId = null;
+        };
+    }
+*/
+
+    function connectGameWebSocket(gameId) {
+        // ID确认已在登录时完成，这里不再需要解析
+        document.getElementById('my-player-id').textContent = myPlayerId;
+
+        const wsUrl = `${WS_BASE_URL}/game?gameId=${gameId}&token=${authToken}`;
+        log(`连接到游戏: ${wsUrl}`);
+        gameSocket = new WebSocket(wsUrl);
+
+        gameSocket.onopen = () => {
+            log('游戏WebSocket连接成功!');
+            document.getElementById('ws-status').textContent = '已连接';
+            document.getElementById('ws-status').className = 'status-badge status-connected';
+        };
+
+        gameSocket.onmessage = (event) => {
+            gameState = JSON.parse(event.data);
+            // 移除旧的ID猜测逻辑
+        };
+
+        gameSocket.onclose = () => {
+            log('游戏WebSocket连接断开。', 'info');
+            document.getElementById('ws-status').textContent = '未连接';
+            document.getElementById('ws-status').className = 'status-badge status-disconnected';
+
+            // 游戏结束后返回大厅界面
+            document.getElementById('lobby-section').style.display = 'block';
+        };
+    }
+
+    // --- Input Handling ---
+    window.addEventListener('keydown', (e) => {
+        if (keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = true;
+    });
+    window.addEventListener('keyup', (e) => {
+        if (keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = false;
+    });
+
+    setInterval(() => {
+        if (!gameSocket || gameSocket.readyState !== WebSocket.OPEN) return;
+
+        let moveInput = 0;
+        if (keys.a) moveInput = -1;
+        if (keys.d) moveInput = 1;
+
+        let actions = 0;
+        if (keys.w || keys[' ']) actions |= 1;
+        if (keys.j) actions |= 2;
+
+        const command = { moveInput, actions };
+        gameSocket.send(JSON.stringify(command));
+
+        keys.w = false;
+        keys[' '] = false;
+        keys.j = false;
+    }, 50);
+
+    // --- Rendering Loop ---
+    function gameLoop() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#785b40';
+        ctx.fillRect(0, 500, canvas.width, 100);
+
+        if (gameState.players) {
+            for (const playerId in gameState.players) {
+                const player = gameState.players[playerId];
+
+                // --- Bug 1 修复: 这里的playerId已经是后端传来的userId字符串,与myPlayerId类型一致 ---
+                ctx.fillStyle = (playerId === myPlayerId) ? '#007bff' : '#dc3545';
+
+                ctx.fillRect(player.x - 20, player.y - 40, 40, 40);
+
+                ctx.fillStyle = '#f00';
+                ctx.fillRect(player.x - 20, player.y - 55, 40, 5);
+                ctx.fillStyle = '#0f0';
+                ctx.fillRect(player.x - 20, player.y - 55, 40 * (player.health / 100), 5);
+
+                ctx.fillStyle = '#000';
+                ctx.font = '12px sans-serif';
+                ctx.textAlign = 'center';
+                // --- Bug 2 修复: 增加默认值防止渲染'undefined' ---
+                ctx.fillText(player.currentAction || 'IDLE', player.x, player.y - 65);
+            }
+        }
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    gameLoop();
+
+    // --- 新增: JWT解析函数 ---
+    function parseJwt (token) {
+        try {
+            return JSON.parse(atob(token.split('.')[1]));
+        } catch (e) {
+            return null;
+        }
+    }
+</script>
+</body>
+</html>

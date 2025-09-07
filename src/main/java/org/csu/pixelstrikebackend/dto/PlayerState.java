@@ -18,15 +18,11 @@ public class PlayerState {
 
     private int health;
     private int currentWeaponId;
-
-    // 当前武器的剩余弹药。
-    private int ammo;
-
-    /**
-     * 角色是否朝向右边。
-     * 客户端用这个布尔值来决定是否需要水平翻转角色的精灵图。
-     */
-    private boolean isFacingRight;
+    private int ammo; //当前武器的剩余弹药
+    private int kills = 0; // 本局游戏中的击杀数
+    private int deaths = 0; //本局游戏中的死亡数。
+    private int ping = 0; // 玩家的网络延迟(ms)
+    private boolean isFacingRight; // 角色是否朝向右边，是否翻转精灵图。
 
     /**
      * 玩家当前的动画状态。
@@ -34,6 +30,7 @@ public class PlayerState {
      * 例如：IDLE, RUN, JUMP, FALL, SHOOT, HIT, DEAD
      */
     private PlayerActionState currentAction;
+    private Integer gameTimeRemainingSeconds;
 
     // 二段跳属性
     private boolean canDoubleJump = false;
@@ -47,6 +44,8 @@ public class PlayerState {
         this.health = original.health;
         this.currentWeaponId = original.currentWeaponId;
         this.ammo = original.ammo;
+        this.kills = original.kills;
+        this.deaths = original.deaths;
         this.isFacingRight = original.isFacingRight;
         this.currentAction = original.currentAction;
         this.canDoubleJump = original.canDoubleJump;

@@ -1,8 +1,11 @@
 package org.csu.pixelstrikebackend.lobby.service;
 
+import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
+import reactor.core.publisher.Mono;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -26,17 +29,14 @@ public class FileStorageService {
         }
     }
 
-    public String storeFile(MultipartFile file) {
-        // 清理文件名，防止路径遍历攻击
-        String originalFileName = StringUtils.cleanPath(file.getOriginalFilename());
+    public Mono<String> storeFile(FilePart file) { // 返回类型修改为 Mono<String>
+        String originalFileName = StringUtils.cleanPath(file.filename());
 
         try {
-            // 检查文件名是否包含无效字符
             if(originalFileName.contains("..")) {
-                throw new RuntimeException("Sorry! Filename contains invalid path sequence " + originalFileName);
+                return Mono.error(new RuntimeException("Sorry! Filename contains invalid path sequence " + originalFileName));
             }
 
-            // 使用UUID生成唯一文件名，避免重名
             String fileExtension = "";
             try {
                 fileExtension = originalFileName.substring(originalFileName.lastIndexOf("."));
@@ -45,16 +45,14 @@ public class FileStorageService {
             }
             String newFileName = UUID.randomUUID().toString() + fileExtension;
 
-
-            // 将文件复制到目标位置
             Path targetLocation = this.fileStorageLocation.resolve(newFileName);
-            try (InputStream inputStream = file.getInputStream()) {
-                Files.copy(inputStream, targetLocation, StandardCopyOption.REPLACE_EXISTING);
-            }
 
-            return newFileName;
-        } catch (IOException ex) {
-            throw new RuntimeException("Could not store file " + originalFileName + ". Please try again!", ex);
+            // transferTo 本身返回一个 Mono<Void>，表示操作完成的信号
+            // 我们用 then(Mono.just(newFileName)) 来在操作成功后返回新的文件名
+            return file.transferTo(targetLocation).then(Mono.just(newFileName));
+
+        } catch (Exception ex) {
+            return Mono.error(new RuntimeException("Could not store file " + originalFileName + ". Please try again!", ex));
         }
     }
 }

@@ -8,6 +8,7 @@ public interface CustomRoomService {
     CommonResponse<?> leaveRoom(Integer userId);
     CommonResponse<?> inviteFriend(Integer inviterId, Integer friendId);
     CommonResponse<?> kickPlayer(Integer hostId, Integer targetId);
+    CommonResponse<?> rejectInvite(Integer rejectorId, Integer inviterId);
     CommonResponse<?> transferHost(Integer oldHostId, Integer newHostId);
     CommonResponse<?> disbandRoom(Integer hostId);
     CommonResponse<?> startGame(Integer hostId);

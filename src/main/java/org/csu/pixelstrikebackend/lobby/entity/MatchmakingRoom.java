@@ -14,6 +14,7 @@ public class MatchmakingRoom {
     private final int maxSize = 3;
     // 使用线程安全的 Set 来存储玩家ID
     private final Set<Integer> players = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private Integer hostId = null;
 
     public MatchmakingRoom() {
         this.roomId = UUID.randomUUID().toString();
@@ -21,6 +22,9 @@ public class MatchmakingRoom {
 
     public boolean addPlayer(Integer userId) {
         if (players.size() < maxSize) {
+            if (players.isEmpty()) {
+                this.hostId = userId; // 第一个加入的玩家是房主
+            }
             return players.add(userId);
         }
         return false;

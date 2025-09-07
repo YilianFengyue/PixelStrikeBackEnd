@@ -2,8 +2,8 @@ package org.csu.pixelstrikebackend.lobby.websocket;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
-import org.springframework.web.socket.TextMessage;
-import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.reactive.socket.WebSocketSession;
+import reactor.core.publisher.Mono;
 
 import java.io.IOException;
 import java.util.Map;
@@ -12,7 +12,6 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 public class WebSocketSessionManager {
 
-    // 存储 userId 和对应的 WebSocketSession
     private final Map<Integer, WebSocketSession> sessions = new ConcurrentHashMap<>();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -28,20 +27,23 @@ public class WebSocketSessionManager {
         }
     }
 
-    /**
-     * 向指定用户发送消息
-     * @param userId 目标用户ID
-     * @param payload 要发送的数据对象
-     */
     public void sendMessageToUser(Integer userId, Object payload) {
         WebSocketSession session = sessions.get(userId);
         if (session != null && session.isOpen()) {
             try {
                 String message = objectMapper.writeValueAsString(payload);
-                session.sendMessage(new TextMessage(message));
+                // 2. 【核心修改】使用响应式的方式发送消息
+                // session.send() 返回一个 Mono<Void>，代表一个异步操作。
+                // 我们需要 .subscribe() 来触发这个操作。
+                session.send(Mono.just(session.textMessage(message)))
+                        .subscribe(
+                                null, // 成功时不做任何事
+                                error -> System.err.println("Error sending message to user " + userId + ": " + error.getMessage())
+                        );
                 System.out.println("Sent message to user " + userId + ": " + message);
             } catch (IOException e) {
-                System.err.println("Error sending message to user " + userId + ": " + e.getMessage());
+                // 这个异常现在主要由序列化失败引起
+                System.err.println("Error serializing message for user " + userId + ": " + e.getMessage());
             }
         }
     }

@@ -12,12 +12,15 @@ import org.csu.pixelstrikebackend.lobby.service.FileStorageService;
 import org.csu.pixelstrikebackend.lobby.service.OnlineUserService;
 import org.csu.pixelstrikebackend.lobby.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+// 添加这些 import
+import org.springframework.http.codec.multipart.FilePart;
+import reactor.core.publisher.Mono;
 
+import java.nio.file.Paths;
 @Service("userService")
 public class UserServiceImpl implements UserService {
 
@@ -72,26 +75,28 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    public CommonResponse<?> updateAvatar(Integer userId, MultipartFile file) {
+    public Mono<CommonResponse<?>> updateAvatar(Integer userId, FilePart file) { // 注意返回类型
         UserProfile userProfile = userProfileMapper.selectById(userId);
         if (userProfile == null) {
-            return CommonResponse.createForError("用户资料不存在");
+            // 对于同步错误，可以直接返回一个包含错误的Mono
+            return Mono.just(CommonResponse.createForError("用户资料不存在"));
         }
-        // 1. 存储文件
-        String fileName = fileStorageService.storeFile(file);
 
-        // 2. 生成可访问的URL
-        String fileDownloadUri = ServletUriComponentsBuilder.fromCurrentContextPath()
-                .path("/uploads/")
-                .path(fileName)
-                .toUriString();
+        // 1. 调用非阻塞的 storeFile 方法，它返回一个 Mono<String>
+        return fileStorageService.storeFile(file)
+                .flatMap(fileName -> {
+                    // 2. 构建完整的、可在浏览器访问的URL
+                    String fullUrl = "http://localhost:8080/uploads/" + fileName;
 
-        // 3. 更新数据库
-        userProfile.setAvatarUrl(fileDownloadUri);
-        userProfileMapper.updateById(userProfile);
+                    // 3. 将完整的URL存入数据库
+                    userProfile.setAvatarUrl(fullUrl);
+                    userProfileMapper.updateById(userProfile);
 
-        return CommonResponse.createForSuccess("头像上传成功", userProfile);
+                    // 4. 将包含完整URL的userProfile对象返回给前端
+                    return Mono.just(CommonResponse.createForSuccess("头像上传成功", userProfile));
+                });
     }
+
     @Override
     @Transactional
     public CommonResponse<?> deleteAccount(Integer userId) {

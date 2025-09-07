@@ -3,17 +3,20 @@ package org.csu.pixelstrikebackend.lobby.service.impl;
 import org.csu.pixelstrikebackend.game.GameLobbyBridge;
 import org.csu.pixelstrikebackend.lobby.common.CommonResponse;
 import org.csu.pixelstrikebackend.lobby.entity.Match;
+import org.csu.pixelstrikebackend.lobby.entity.MatchParticipant;
 import org.csu.pixelstrikebackend.lobby.entity.MatchmakingRoom;
 import org.csu.pixelstrikebackend.lobby.entity.UserProfile;
 import org.csu.pixelstrikebackend.lobby.enums.UserStatus;
 import org.csu.pixelstrikebackend.lobby.mapper.FriendMapper;
 import org.csu.pixelstrikebackend.lobby.mapper.MatchMapper;
+import org.csu.pixelstrikebackend.lobby.mapper.MatchParticipantMapper;
 import org.csu.pixelstrikebackend.lobby.mapper.UserProfileMapper;
 import org.csu.pixelstrikebackend.lobby.service.MatchmakingService;
 import org.csu.pixelstrikebackend.lobby.service.OnlineUserService;
 import org.csu.pixelstrikebackend.lobby.websocket.WebSocketSessionManager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -34,13 +37,15 @@ public class MatchmakingServiceImpl implements MatchmakingService {
     @Autowired
     private WebSocketSessionManager webSocketSessionManager;
     @Autowired
-    private FriendMapper friendMapper; // <-- 新增注入 FriendMapper
+    private FriendMapper friendMapper;
     @Autowired
-    private MatchMapper matchMapper; // <-- 新增注入
+    private MatchMapper matchMapper;
     @Autowired
     private UserProfileMapper userProfileMapper;
     @Autowired
     private GameLobbyBridge gameLobbyBridge; // 注入桥接实现
+    @Autowired
+    private MatchParticipantMapper matchParticipantMapper;
 
     @Override
     public synchronized CommonResponse<?> startMatchmaking(Integer userId) {
@@ -206,5 +211,35 @@ public class MatchmakingServiceImpl implements MatchmakingService {
                 webSocketSessionManager.sendMessageToUser(friend.getUserId(), notification);
             }
         }
+    }
+
+    @Override
+    @Transactional
+    public void processGameResults(Long gameId, List<MatchParticipant> results) {
+        System.out.println("大厅模块正在处理战绩，游戏ID: " + gameId);
+
+        // 1. 批量插入参与者战绩并更新玩家总战绩
+        for (MatchParticipant result : results) {
+            matchParticipantMapper.insert(result);
+
+            // 【新增】更新UserProfile
+            UserProfile profile = userProfileMapper.selectById(result.getUserId());
+            if (profile != null) {
+                profile.setTotalMatches(profile.getTotalMatches() + 1);
+                // 如果排名第一，则胜利场次+1
+                if (result.getRanking() != null && result.getRanking() == 1) {
+                    profile.setWins(profile.getWins() + 1);
+                }
+                userProfileMapper.updateById(profile);
+            }
+        }
+
+        // 2. 更新对局表的结束时间
+        Match match = matchMapper.selectById(gameId);
+        if (match != null) {
+            match.setEndTime(LocalDateTime.now());
+            matchMapper.updateById(match);
+        }
+        System.out.println("战绩处理完毕并已存入数据库。");
     }
 }

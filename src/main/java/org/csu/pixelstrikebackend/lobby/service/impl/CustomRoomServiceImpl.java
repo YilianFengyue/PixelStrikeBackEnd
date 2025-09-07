@@ -89,6 +89,32 @@ public class CustomRoomServiceImpl implements CustomRoomService {
     }
 
     @Override
+    public CommonResponse<?> rejectInvite(Integer rejectorId, Integer inviterId) {
+        // 校验邀请人是否在线，只有在线才能收到通知
+        if (!onlineUserService.isUserOnline(inviterId)) {
+            return CommonResponse.createForSuccessMessage("操作成功"); // 即使对方不在线，也告诉前端操作成功
+        }
+
+        // 获取拒绝者的昵称
+        UserProfile rejectorProfile = userProfileMapper.selectById(rejectorId);
+        if (rejectorProfile == null) {
+            return CommonResponse.createForError("发生未知错误");
+        }
+
+        // 构建通知消息
+        Map<String, Object> notification = Map.of(
+                "type", "invitation_rejected",
+                "rejectorId", rejectorId,
+                "rejectorNickname", rejectorProfile.getNickname()
+        );
+
+        // 通过WebSocket将通知发送给邀请人
+        webSocketSessionManager.sendMessageToUser(inviterId, notification);
+
+        return CommonResponse.createForSuccessMessage("已拒绝邀请");
+    }
+
+    @Override
     public CommonResponse<?> leaveRoom(Integer userId) {
         String roomId = playerToRoomMap.remove(userId);
         if (roomId == null) {

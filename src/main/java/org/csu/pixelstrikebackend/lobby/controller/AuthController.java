@@ -1,6 +1,5 @@
 package org.csu.pixelstrikebackend.lobby.controller;
 
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.csu.pixelstrikebackend.lobby.common.CommonResponse;
 import org.csu.pixelstrikebackend.lobby.dto.LoginRequest;
@@ -13,6 +12,7 @@ import org.csu.pixelstrikebackend.lobby.service.AuthService;
 import org.csu.pixelstrikebackend.lobby.service.OnlineUserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ServerWebExchange;
 
 @RestController
 @RequestMapping("/auth")
@@ -34,8 +34,7 @@ public class AuthController {
 
     @PostMapping("/register")
     public CommonResponse<User> register(@Valid @RequestBody RegisterRequest user) {
-        CommonResponse<User> result = authService.register(user);
-        return result;
+        return authService.register(user);
     }
 
     @PostMapping("/login")
@@ -47,23 +46,18 @@ public class AuthController {
      * 用户登出接口（需要认证）
      */
     @PostMapping("/logout")
-    public CommonResponse<?> logout(HttpServletRequest request) {
-        // 从 request 中获取拦截器存入的 userId
-        Integer userId = (Integer) request.getAttribute("userId");
+    public CommonResponse<?> logout(ServerWebExchange exchange) {
+        Integer userId = exchange.getAttribute("userId");
         return authService.logout(userId);
     }
 
     @GetMapping("/me")
-    public CommonResponse<UserProfile> getMyProfile(HttpServletRequest request) {
-        // 从 request 中获取拦截器存入的 userId
-        Integer userId = (Integer) request.getAttribute("userId");
-
-        // 查询并返回用户信息
+    public CommonResponse<UserProfile> getMyProfile(ServerWebExchange exchange) {
+        Integer userId = exchange.getAttribute("userId");
         UserProfile userProfile = userProfileMapper.selectById(userId);
         if (userProfile == null) {
             return CommonResponse.createForError("用户不存在");
         }
-
         return CommonResponse.createForSuccess("获取成功", userProfile);
     }
 

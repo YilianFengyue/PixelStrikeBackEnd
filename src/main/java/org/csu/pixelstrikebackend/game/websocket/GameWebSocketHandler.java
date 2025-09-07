@@ -1,89 +1,77 @@
 package org.csu.pixelstrikebackend.game.websocket;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import org.csu.pixelstrikebackend.dto.UserCommand;
 import org.csu.pixelstrikebackend.game.service.GameRoom;
 import org.csu.pixelstrikebackend.game.service.GameRoomManager;
 import org.csu.pixelstrikebackend.lobby.util.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import org.springframework.web.socket.CloseStatus;
-import org.springframework.web.socket.TextMessage;
-import org.springframework.web.socket.WebSocketSession;
-import org.springframework.web.socket.handler.TextWebSocketHandler;
+import org.springframework.web.reactive.socket.WebSocketHandler;
+import org.springframework.web.reactive.socket.WebSocketMessage;
+import org.springframework.web.reactive.socket.WebSocketSession;
 import org.springframework.web.util.UriComponentsBuilder;
+import reactor.core.publisher.Mono;
 
-import java.io.IOException;
-import java.net.URI;
 import java.util.Map;
 
 @Component
-public class GameWebSocketHandler extends TextWebSocketHandler {
+public class GameWebSocketHandler implements WebSocketHandler {
 
     @Autowired
     private GameRoomManager roomManager;
     private final Gson gson = new Gson();
 
     @Override
-    public void afterConnectionEstablished(WebSocketSession session) {
-        // --- 从WebSocket连接的URI中解析出roomId ---
-        URI uri = session.getUri();
-        if (uri == null) {
-            try {
-                session.close();
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-            return;
-        }
-
-        /*String roomId = UriComponentsBuilder.fromUri(uri)
+    public Mono<Void> handle(WebSocketSession session) {
+        String roomId = UriComponentsBuilder.fromUri(session.getHandshakeInfo().getUri())
                 .build()
                 .getQueryParams()
                 .getFirst("gameId");
-*/
-        Map<String, String> queryParams = UriComponentsBuilder.fromUri(uri)
+
+        String token = UriComponentsBuilder.fromUri(session.getHandshakeInfo().getUri())
                 .build()
                 .getQueryParams()
-                .toSingleValueMap();
+                .getFirst("token");
 
-        String gameId = queryParams.get("gameId");
-        String token = queryParams.get("token"); // 2. 获取 token
+        Integer userId = (token != null) ? JwtUtil.verifyTokenAndGetUserId(token) : null;
 
-        if (gameId == null || gameId.trim().isEmpty()|| token == null) {
-            System.err.println("Player connected without a roomId. Closing connection.");
-            try {
-                session.close(); // 如果客户端没有提供roomId，则拒绝连接
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-            return;
+
+        if (roomId == null || roomId.trim().isEmpty() || userId == null) {
+            return session.close(org.springframework.web.reactive.socket.CloseStatus.BAD_DATA.withReason("RoomId or UserId is missing"));
         }
-        Integer userId = JwtUtil.verifyTokenAndGetUserId(token);
-        if (userId == null) {
-            System.err.println("Player connected with invalid token. Closing connection.");
-            try { session.close(); } catch (IOException e) { throw new RuntimeException(e); }
-            return;
-        }
+        session.getAttributes().put("userId", userId);
 
-        // 现在，我们不再负责创建房间，只负责将玩家加入GameRoomManager已知的房间
-        roomManager.addPlayerToRoom(gameId, session, userId);
-    }
+        roomManager.addPlayerToRoom(roomId, session, userId);
 
-    @Override
-    protected void handleTextMessage(WebSocketSession session, TextMessage message) {
-        GameRoom room = roomManager.getRoomForPlayer(session.getId());
-        if (room != null) {
-            try {
-                UserCommand command = gson.fromJson(message.getPayload(), UserCommand.class);
-                command.setPlayerId(session.getId());
-                room.queueCommand(command);
-            } catch (Exception e) { /* ... */ }
-        }
-    }
-
-    @Override
-    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
-        roomManager.removePlayerFromRoom(session);
+        return session.receive()
+                .map(WebSocketMessage::getPayloadAsText)
+                .flatMap(payload -> {
+                    GameRoom room = roomManager.getRoomForPlayer(session.getId());
+                    if (room != null) {
+                        try {
+                            JsonObject jsonObject = gson.fromJson(payload, JsonObject.class);
+                            if (jsonObject.has("type") && "ping".equals(jsonObject.get("type").getAsString())) {
+                                long timestamp = jsonObject.get("timestamp").getAsLong();
+                                Map<String, Object> pongMessage = Map.of("type", "pong", "timestamp", timestamp);
+                                return session.send(Mono.just(session.textMessage(gson.toJson(pongMessage))));
+                            } else {
+                                UserCommand command = gson.fromJson(payload, UserCommand.class);
+                                command.setPlayerId(session.getId());
+                                room.queueCommand(command);
+                            }
+                        } catch (Exception e) {
+                            System.err.println("解析UserCommand失败: " + e.getMessage());
+                        }
+                    }
+                    return Mono.empty();
+                })
+                .doOnError(error -> System.err.println("Error on WebSocket input: " + error.getMessage()))
+                .doFinally(signalType -> {
+                    System.out.println("Connection closed for session: " + session.getId() + ", Status: " + signalType);
+                    roomManager.removePlayerFromRoom(session);
+                })
+                .then();
     }
 }

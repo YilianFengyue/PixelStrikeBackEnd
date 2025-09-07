@@ -11,12 +11,17 @@ spring:
     url: jdbc:mysql://localhost:3306/pixelstrike #?servierTimezone=UTC
     username: root
     password: 1234
-#    password: abcABC369258
-  servlet:
+    # password: abcABC369258
+#  servlet:
+#    multipart:
+#      enabled: true
+#      max-file-size: 50MB
+#      max-request-size: 100MB
+  webflux:
     multipart:
-      enabled: true
-      max-file-size: 50MB
-      max-request-size: 100MB
+      max-in-memory-size: 50MB # 调整为你需要的大小
+      max-parts: 10
+
 mybatis-plus:
   configuration:
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
