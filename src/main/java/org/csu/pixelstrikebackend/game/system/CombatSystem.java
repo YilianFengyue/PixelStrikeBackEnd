@@ -1,5 +1,6 @@
 package org.csu.pixelstrikebackend.game.system;
 
+import org.csu.pixelstrikebackend.config.GameConfig;
 import org.csu.pixelstrikebackend.dto.GameStateSnapshot.GameEvent;
 import org.csu.pixelstrikebackend.dto.PlayerState;
 import org.springframework.stereotype.Component;
@@ -11,8 +12,11 @@ import java.util.Map;
 @Component
 public class CombatSystem {
 
-    private static final int WEAPON_DAMAGE = 25;
-    private static final double PLAYER_HEIGHT = 40.0;
+    private final GameConfig gameConfig;
+
+    public CombatSystem(GameConfig gameConfig) {
+        this.gameConfig = gameConfig;
+    }
 
     public void update(Map<String, PlayerState> playerStates, List<GameEvent> events) {
         for (PlayerState attacker : playerStates.values()) {
@@ -32,7 +36,7 @@ public class CombatSystem {
     }
 
     private void applyDamageAndKnockback(PlayerState attacker, PlayerState target, List<GameEvent> events) {
-        target.setHealth(target.getHealth() - WEAPON_DAMAGE);
+        target.setHealth(target.getHealth() - gameConfig.getWeapon().getDamage());
         target.setCurrentAction(PlayerState.PlayerActionState.HIT);
 
         double knockbackStrength = 5.0;
@@ -62,7 +66,7 @@ public class CombatSystem {
             return false;
         }
 
-        return Math.abs(attacker.getY() - target.getY()) < PLAYER_HEIGHT;
+        return Math.abs(attacker.getY() - target.getY()) < gameConfig.getPlayer().getHeight();
     }
 
     private GameEvent createGameEvent(GameEvent.EventType type, String relatedPlayerId) {

@@ -24,14 +24,10 @@ import java.util.stream.Collectors;
 public class FriendServiceImpl implements FriendService {
 
     // ... (Autowired 字段和 search, send, accept, delete 方法保持不变)
-    @Autowired
-    private UserProfileMapper userProfileMapper;
-    @Autowired
-    private FriendMapper friendMapper;
-    @Autowired
-    private OnlineUserService onlineUserService;
-    @Autowired
-    private WebSocketSessionManager webSocketSessionManager;
+    @Autowired private UserProfileMapper userProfileMapper;
+    @Autowired private FriendMapper friendMapper;
+    @Autowired private OnlineUserService onlineUserService;
+    @Autowired private WebSocketSessionManager webSocketSessionManager;
 
     @Override
     public CommonResponse<List<FriendListDTO>> searchUsersByNickname(String nickname, Integer currentUserId) {

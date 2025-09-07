@@ -1,13 +1,17 @@
 package org.csu.pixelstrikebackend.game.system;
 
+import org.csu.pixelstrikebackend.config.GameConfig;
 import org.csu.pixelstrikebackend.dto.GameStateSnapshot;
 import org.springframework.stereotype.Component;
 
 @Component
 public class GameCountdownSystem {
 
-    private static final int COUNTDOWN_SECONDS = 5; // 倒计时5秒
+    private final GameConfig gameConfig;
 
+    public GameCountdownSystem(GameConfig gameConfig) {
+        this.gameConfig = gameConfig;
+    }
     /**
      * 处理倒计时逻辑。
      * @param roomState 游戏房间的当前状态
@@ -16,7 +20,7 @@ public class GameCountdownSystem {
      */
     public boolean update(RoomState roomState, GameStateSnapshot snapshot) {
         long elapsedTime = System.currentTimeMillis() - roomState.countdownStartTime;
-        int secondsRemaining = COUNTDOWN_SECONDS - (int)(elapsedTime / 1000);
+        int secondsRemaining = gameConfig.getRules().getCountdownSeconds() - (int)(elapsedTime / 1000);
 
         // 将剩余秒数放入快照，以便客户端显示
         snapshot.setCountdownSeconds(secondsRemaining);

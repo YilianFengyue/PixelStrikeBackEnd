@@ -1,6 +1,7 @@
 package org.csu.pixelstrikebackend.game.service;
 
 
+import org.csu.pixelstrikebackend.config.GameConfig;
 import org.csu.pixelstrikebackend.game.GameLobbyBridge;
 import org.csu.pixelstrikebackend.game.system.*;
 import org.csu.pixelstrikebackend.lobby.entity.MatchParticipant;
@@ -45,6 +46,7 @@ public class GameRoomManager implements GameLobbyBridge {
     @Autowired private GameConditionSystem gameConditionSystem;
     @Autowired private GameCountdownSystem gameCountdownSystem;
     @Autowired private GameTimerSystem gameTimerSystem;
+    @Autowired private GameConfig gameConfig;
 
     // --- 实现桥接接口的方法 ---
     @Override
@@ -56,7 +58,7 @@ public class GameRoomManager implements GameLobbyBridge {
             GameRoom newRoom = new GameRoom(id, this,
                     inputSystem, combatSystem, physicsSystem,
                     gameStateSystem, gameConditionSystem, gameCountdownSystem,
-                    gameTimerSystem, broadcaster, playerIds);
+                    gameTimerSystem, broadcaster, playerIds, gameConfig);
             // 不再提交到线程池
             // roomExecutor.submit(newRoom);
             return newRoom;

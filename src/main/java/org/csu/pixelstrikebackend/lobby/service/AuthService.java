@@ -31,11 +31,13 @@ public class AuthService {
     @Autowired
     private PasswordEncoder passwordEncoder;
     @Autowired
-    private OnlineUserService onlineUserService; // 新增注入
+    private OnlineUserService onlineUserService;
     @Autowired
-    private WebSocketSessionManager webSocketSessionManager; // 新增注入
+    private WebSocketSessionManager webSocketSessionManager;
     @Autowired
-    private FriendMapper friendMapper; // 新增注入
+    private FriendMapper friendMapper;
+    @Autowired
+    private PlayerSessionService playerSessionService;
 
     @Transactional // 开启事务，确保两个表的插入操作要么都成功，要么都失败
     public CommonResponse<User> register(RegisterRequest request) {
@@ -92,10 +94,10 @@ public class AuthService {
             return CommonResponse.createForError("登录失败，用户名或密码错误");
         }
 
-        // 检查用户是否已在线，如果需要禁止多端登录，可以在这里处理
-        if (onlineUserService.isUserOnline(user.getId())) {
-            // 根据游戏策略，可以选择踢掉旧的连接或禁止新的登录
-            // 这里我们先简单返回一个提示
+        Long activeGameId = playerSessionService.getActiveGameId(user.getId());
+
+        // 如果玩家不在游戏中，执行“是否已在别处登录”的检查
+        if (activeGameId == null && onlineUserService.isUserOnline(user.getId())) {
             return CommonResponse.createForError("登录失败，该账号已在别处登录");
         }
         //将用户添加到在线列表
@@ -111,6 +113,7 @@ public class AuthService {
         LoginResponseDTO loginResponse = new LoginResponseDTO();
         loginResponse.setToken(token);
         loginResponse.setUserProfile(userProfile);
+        loginResponse.setActiveGameId(activeGameId);
 
 
         notifyFriendsAboutStatusChange(user.getId(), "ONLINE");

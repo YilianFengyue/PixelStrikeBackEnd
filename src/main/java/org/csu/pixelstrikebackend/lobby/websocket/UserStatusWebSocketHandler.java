@@ -1,5 +1,6 @@
 package org.csu.pixelstrikebackend.lobby.websocket;
 
+import org.csu.pixelstrikebackend.lobby.service.OnlineUserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.socket.WebSocketHandler;
@@ -11,6 +12,9 @@ public class UserStatusWebSocketHandler implements WebSocketHandler {
 
     @Autowired
     private WebSocketSessionManager sessionManager;
+
+    @Autowired
+    private OnlineUserService onlineUserService;
 
     @Override
     public Mono<Void> handle(WebSocketSession session) {
@@ -41,6 +45,7 @@ public class UserStatusWebSocketHandler implements WebSocketHandler {
                 .doFinally(signalType -> { // 当连接关闭或出错时，执行清理
                     System.out.println("WebSocket connection closed for user: " + userId + " with signal: " + signalType);
                     sessionManager.removeSession(userId);
+                    onlineUserService.removeUser(userId);
                 });
     }
 }

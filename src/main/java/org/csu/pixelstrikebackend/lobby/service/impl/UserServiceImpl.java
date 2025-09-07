@@ -24,17 +24,13 @@ import java.nio.file.Paths;
 @Service("userService")
 public class UserServiceImpl implements UserService {
 
-    @Autowired
-    private UserMapper userMapper;
+    @Autowired private UserMapper userMapper;
 
-    @Autowired
-    private UserProfileMapper userProfileMapper;
+    @Autowired private UserProfileMapper userProfileMapper;
 
-    @Autowired
-    private PasswordEncoder passwordEncoder;
+    @Autowired private PasswordEncoder passwordEncoder;
 
-    @Autowired
-    private OnlineUserService onlineUserService;
+    @Autowired private OnlineUserService onlineUserService;
 
     @Autowired
     private FileStorageService fileStorageService; // 注入文件存储服务

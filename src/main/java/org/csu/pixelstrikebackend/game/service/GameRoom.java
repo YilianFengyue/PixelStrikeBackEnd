@@ -2,6 +2,7 @@ package org.csu.pixelstrikebackend.game.service;
 
 
 import com.google.gson.Gson;
+import org.csu.pixelstrikebackend.config.GameConfig;
 import org.csu.pixelstrikebackend.dto.GameStateSnapshot;
 import org.csu.pixelstrikebackend.dto.PlayerState;
 import org.csu.pixelstrikebackend.dto.UserCommand;
@@ -13,14 +14,12 @@ import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -47,13 +46,17 @@ public class GameRoom {
     private final long gameStartTime;
     private final int expectedPlayerCount;
     private final GameCountdownSystem.RoomState countdownRoomState;
-
     private enum RoomPhase { WAITING_FOR_PLAYERS, COUNTDOWN, RUNNING, CONCLUDED }
     private volatile RoomPhase currentPhase = RoomPhase.WAITING_FOR_PLAYERS;
     private final Gson gson = new Gson();
+    private final GameConfig gameConfig;
 
+    // -- 在线管理 --
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
     private Disposable gameLoopSubscription;
+    // 用于管理断线玩家
+    private final Map<Integer, String> disconnectedPlayerSessions = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService cleanupScheduler = Executors.newSingleThreadScheduledExecutor();
 
     public GameRoom(String roomId,
                     GameRoomManager roomManager,
@@ -65,7 +68,8 @@ public class GameRoom {
                     GameCountdownSystem gameCountdownSystem,
                     GameTimerSystem gameTimerSystem,
                     WebSocketBroadcastService broadcaster,
-                    List<Integer> playerIds) {
+                    List<Integer> playerIds,
+                    GameConfig gameConfig) {
         this.roomId = roomId;
         this.roomManager = roomManager;
         this.inputSystem = inputSystem;
@@ -79,9 +83,26 @@ public class GameRoom {
         this.gameStartTime = System.currentTimeMillis();
         this.expectedPlayerCount = playerIds.size();
         this.countdownRoomState = new GameCountdownSystem.RoomState(roomId);
+        this.gameConfig = gameConfig;
     }
 
     public void addPlayer(WebSocketSession session, Integer userId) {
+        // 断线重连
+        if (disconnectedPlayerSessions.containsKey(userId)) {
+            System.out.printf("Reconnecting player with userId: %d in room %s\n", userId, roomId);
+            String oldSessionId = disconnectedPlayerSessions.remove(userId);
+            PlayerState existingState = playerStates.remove(oldSessionId); // 移除旧的状态
+
+            if (existingState != null) {
+                existingState.setPlayerId(session.getId()); // 更新为新的 sessionId
+                playerStates.put(session.getId(), existingState); // 重新放入
+                sessions.put(session.getId(), session);
+                sessionToUserIdMap.put(session.getId(), userId);
+                sendWelcomeMessage(session);
+                return; // 重连成功，结束流程
+            }
+        }
+
         sessions.put(session.getId(), session);
         sessionToUserIdMap.put(session.getId(), userId);
         PlayerState initialState = new PlayerState();
@@ -116,9 +137,28 @@ public class GameRoom {
     }
 
     public void removePlayer(WebSocketSession session) {
-        sessions.remove(session.getId());
-        playerStates.remove(session.getId());
-        System.out.printf("Player %s left room %s\n", session.getId(), roomId);
+        String sessionId = session.getId();
+        Integer userId = sessionToUserIdMap.get(sessionId);
+
+        if (userId != null) {
+            sessions.remove(sessionId);
+            System.out.printf("Player %s (userId: %d) disconnected from room %s. Starting 30s reconnect timer.\n", sessionId, userId, roomId);
+
+            // 标记为断线，而不是直接移除
+            disconnectedPlayerSessions.put(userId, sessionId);
+
+            // 启动一个30秒后执行的清理任务
+            cleanupScheduler.schedule(() -> {
+                // 30秒后，检查玩家是否已经重连
+                if (disconnectedPlayerSessions.containsKey(userId)) {
+                    // 如果还在这里，说明没有重连成功，彻底移除
+                    System.out.printf("Reconnect timer expired for userId: %d. Removing from game.\n", userId);
+                    disconnectedPlayerSessions.remove(userId);
+                    playerStates.remove(sessionId);
+                    sessionToUserIdMap.remove(sessionId);
+                }
+            }, 30, TimeUnit.SECONDS);
+        }
     }
 
     public void queueCommand(UserCommand command) {
@@ -136,10 +176,11 @@ public class GameRoom {
     }
 
     private void startGameLoop() {
-        final long TICK_RATE_MS = 50; // 20Hz
+        // final long TICK_RATE_MS = 50;
+        // yaml 中配置，16ms一次，大约62.5Hz
         AtomicLong tickNumber = new AtomicLong(0);
 
-        this.gameLoopSubscription = Flux.interval(Duration.ofMillis(TICK_RATE_MS))
+        this.gameLoopSubscription = Flux.interval(Duration.ofMillis(gameConfig.getEngine().getTickRateMs()))
                 .doOnNext(tick -> gameTick(tickNumber.incrementAndGet()))
                 .doOnError(e -> System.err.println("Game loop error in room " + roomId + ": " + e.getMessage()))
                 .subscribe();
@@ -181,6 +222,7 @@ public class GameRoom {
 
     private void onGameConcluded() {
         System.out.printf("Game room %s has concluded.\n", roomId);
+        cleanupScheduler.shutdownNow();
         reportGameResults();
         notifyAndCloseConnections();
         // 通知Manager移除自己
