@@ -3,6 +3,7 @@ package org.csu.pixelstrikebackend.lobby.service;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import org.csu.pixelstrikebackend.lobby.common.CommonResponse;
 import org.csu.pixelstrikebackend.lobby.dto.LoginRequest;
+import org.csu.pixelstrikebackend.lobby.dto.LoginResponseDTO;
 import org.csu.pixelstrikebackend.lobby.dto.RegisterRequest;
 import org.csu.pixelstrikebackend.lobby.entity.User;
 import org.csu.pixelstrikebackend.lobby.entity.UserProfile;
@@ -73,7 +74,7 @@ public class AuthService {
      * @param request 包含用户名和密码的请求体
      * @return 包含 Token 的响应或错误信息
      */
-    public CommonResponse<String> login(LoginRequest request) {
+    public CommonResponse<LoginResponseDTO> login(LoginRequest request) {
         // 1. 根据用户名查询用户
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
         queryWrapper.eq("username", request.getUsername());
@@ -105,10 +106,15 @@ public class AuthService {
         if (token == null) {
             return CommonResponse.createForError("登录失败，Token 生成异常");
         }
+        UserProfile userProfile = userProfileMapper.selectById(user.getId());
+
+        LoginResponseDTO loginResponse = new LoginResponseDTO();
+        loginResponse.setToken(token);
+        loginResponse.setUserProfile(userProfile);
+
 
         notifyFriendsAboutStatusChange(user.getId(), "ONLINE");
-
-        return CommonResponse.createForSuccess("登录成功", token);
+        return CommonResponse.createForSuccess("登录成功", loginResponse);
     }
 
     /**
