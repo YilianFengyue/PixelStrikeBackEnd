@@ -1,5 +1,6 @@
 package org.csu.pixelstrikebackend.lobby.service.impl;
 
+import org.csu.pixelstrikebackend.config.GameConfig;
 import org.csu.pixelstrikebackend.game.GameLobbyBridge;
 import org.csu.pixelstrikebackend.lobby.common.CommonResponse;
 import org.csu.pixelstrikebackend.lobby.entity.Match;
@@ -32,20 +33,14 @@ public class MatchmakingServiceImpl implements MatchmakingService {
     // 存储玩家ID和其所在房间ID的映射，方便快速查找和取消
     private final Map<Integer, String> playerRoomMap = new ConcurrentHashMap<>();
 
-    @Autowired
-    private OnlineUserService onlineUserService;
-    @Autowired
-    private WebSocketSessionManager webSocketSessionManager;
-    @Autowired
-    private FriendMapper friendMapper;
-    @Autowired
-    private MatchMapper matchMapper;
-    @Autowired
-    private UserProfileMapper userProfileMapper;
-    @Autowired
-    private GameLobbyBridge gameLobbyBridge; // 注入桥接实现
-    @Autowired
-    private MatchParticipantMapper matchParticipantMapper;
+    @Autowired private OnlineUserService onlineUserService;
+    @Autowired private WebSocketSessionManager webSocketSessionManager;
+    @Autowired private FriendMapper friendMapper;
+    @Autowired private MatchMapper matchMapper;
+    @Autowired private UserProfileMapper userProfileMapper;
+    @Autowired private GameLobbyBridge gameLobbyBridge; // 注入桥接实现
+    @Autowired private MatchParticipantMapper matchParticipantMapper;
+    @Autowired private GameConfig gameConfig;
 
     @Override
     public synchronized CommonResponse<?> startMatchmaking(Integer userId) {
@@ -58,7 +53,7 @@ public class MatchmakingServiceImpl implements MatchmakingService {
 
         // 如果没有找到，则创建一个新房间
         if (targetRoom == null) {
-            targetRoom = new MatchmakingRoom();
+            targetRoom = new MatchmakingRoom(gameConfig.getMatchmaking().getRoomMaxSize());
             rooms.add(targetRoom);
             System.out.println("No available rooms. Created a new room: " + targetRoom.getRoomId());
         }

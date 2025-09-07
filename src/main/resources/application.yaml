@@ -26,3 +26,28 @@ mybatis-plus:
       logic-delete-field: deleted
       logic-not-delete-value: 0
       logic-delete-value: 1
+
+
+# ===============================================
+#  游戏核心参数配置
+# ===============================================
+game:
+  matchmaking:
+    room-max-size: 3 # 匹配房间大小
+  rules:
+    kills-to-win: 2 # 胜利所需的击杀数
+    max-duration-ms: 300000 # 游戏最长持续时间 (5分钟)
+    countdown-seconds: 5 # 开局倒计时
+  player:
+    max-health: 100 # 玩家最大生命值
+    initial-ammo: 30 # 初始弹药
+    respawn-time-ms: 3000 # 复活时间 (3秒)
+    height: 40.0 # 玩家高度，用于命中判定
+  physics:
+    gravity: 0.8 # 重力加速度
+    ground-y: 500.0 # 地面Y坐标
+    death-zone-y: 1200.0 # 掉落死亡区域的Y坐标
+  weapon:
+    damage: 25 # 武器伤害
+  engine:
+    tick-rate-ms: 16 # 游戏服务器的Tick频率 (ms), 16ms ≈ 62.5Hz

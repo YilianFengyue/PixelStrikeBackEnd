@@ -1,5 +1,6 @@
 package org.csu.pixelstrikebackend.lobby.service.impl;
 
+import org.csu.pixelstrikebackend.config.GameConfig;
 import org.csu.pixelstrikebackend.game.GameLobbyBridge;
 import org.csu.pixelstrikebackend.lobby.common.CommonResponse;
 import org.csu.pixelstrikebackend.lobby.entity.Match;
@@ -23,21 +24,18 @@ public class CustomRoomRoomServiceImpl implements CustomRoomService {
     private final Map<String, MatchmakingRoom> customRooms = new ConcurrentHashMap<>();
     private final Map<Integer, String> playerInRoomMap = new ConcurrentHashMap<>();
 
-    @Autowired
-    private OnlineUserService onlineUserService;
-    @Autowired
-    private WebSocketSessionManager webSocketSessionManager;
-    @Autowired
-    private GameLobbyBridge gameLobbyBridge;
-    @Autowired
-    private MatchMapper matchMapper;
+    @Autowired private OnlineUserService onlineUserService;
+    @Autowired private WebSocketSessionManager webSocketSessionManager;
+    @Autowired private GameLobbyBridge gameLobbyBridge;
+    @Autowired private MatchMapper matchMapper;
+    @Autowired private GameConfig gameConfig;
 
     public CommonResponse<Map<String, String>> createRoom(Integer hostId) {
         if (playerInRoomMap.containsKey(hostId)) {
             return CommonResponse.createForError("您已经在另一个房间中了");
         }
 
-        MatchmakingRoom newRoom = new MatchmakingRoom();
+        MatchmakingRoom newRoom = new MatchmakingRoom(gameConfig.getMatchmaking().getRoomMaxSize());
         newRoom.addPlayer(hostId);
         customRooms.put(newRoom.getRoomId(), newRoom);
         playerInRoomMap.put(hostId, newRoom.getRoomId());

@@ -468,6 +468,7 @@
         gameSocket.onclose = () => {
             log('游戏连接断开 (游戏结束)。', 'error');
             myPlayerId = null;
+            gameState = { players: {} };
             controlsEnabled = false;
 
             // 1. 显示 GAME OVER 2秒钟给用户反馈

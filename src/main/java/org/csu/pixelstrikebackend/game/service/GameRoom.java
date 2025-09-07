@@ -2,6 +2,7 @@ package org.csu.pixelstrikebackend.game.service;
 
 
 import com.google.gson.Gson;
+import org.csu.pixelstrikebackend.config.GameConfig;
 import org.csu.pixelstrikebackend.dto.GameStateSnapshot;
 import org.csu.pixelstrikebackend.dto.PlayerState;
 import org.csu.pixelstrikebackend.dto.UserCommand;
@@ -13,7 +14,6 @@ import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -51,6 +51,7 @@ public class GameRoom {
     private enum RoomPhase { WAITING_FOR_PLAYERS, COUNTDOWN, RUNNING, CONCLUDED }
     private volatile RoomPhase currentPhase = RoomPhase.WAITING_FOR_PLAYERS;
     private final Gson gson = new Gson();
+    private final GameConfig gameConfig;
 
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
     private Disposable gameLoopSubscription;
@@ -65,7 +66,8 @@ public class GameRoom {
                     GameCountdownSystem gameCountdownSystem,
                     GameTimerSystem gameTimerSystem,
                     WebSocketBroadcastService broadcaster,
-                    List<Integer> playerIds) {
+                    List<Integer> playerIds,
+                    GameConfig gameConfig) {
         this.roomId = roomId;
         this.roomManager = roomManager;
         this.inputSystem = inputSystem;
@@ -79,6 +81,7 @@ public class GameRoom {
         this.gameStartTime = System.currentTimeMillis();
         this.expectedPlayerCount = playerIds.size();
         this.countdownRoomState = new GameCountdownSystem.RoomState(roomId);
+        this.gameConfig = gameConfig;
     }
 
     public void addPlayer(WebSocketSession session, Integer userId) {
@@ -136,10 +139,11 @@ public class GameRoom {
     }
 
     private void startGameLoop() {
-        final long TICK_RATE_MS = 50; // 20Hz
+        // final long TICK_RATE_MS = 50;
+        // yaml 中配置，16ms一次，大约62.5Hz
         AtomicLong tickNumber = new AtomicLong(0);
 
-        this.gameLoopSubscription = Flux.interval(Duration.ofMillis(TICK_RATE_MS))
+        this.gameLoopSubscription = Flux.interval(Duration.ofMillis(gameConfig.getEngine().getTickRateMs()))
                 .doOnNext(tick -> gameTick(tickNumber.incrementAndGet()))
                 .doOnError(e -> System.err.println("Game loop error in room " + roomId + ": " + e.getMessage()))
                 .subscribe();

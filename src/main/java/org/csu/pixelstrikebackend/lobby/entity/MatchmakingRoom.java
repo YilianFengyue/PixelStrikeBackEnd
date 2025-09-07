@@ -11,13 +11,14 @@ import java.util.concurrent.ConcurrentHashMap;
 public class MatchmakingRoom {
     private final String roomId;
     //匹配所需的玩家数量
-    private final int maxSize = 3;
+    private final int maxSize;
     // 使用线程安全的 Set 来存储玩家ID
     private final Set<Integer> players = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private Integer hostId = null;
 
-    public MatchmakingRoom() {
+    public MatchmakingRoom(int maxSize) {
         this.roomId = UUID.randomUUID().toString();
+        this.maxSize = maxSize;
     }
 
     public boolean addPlayer(Integer userId) {

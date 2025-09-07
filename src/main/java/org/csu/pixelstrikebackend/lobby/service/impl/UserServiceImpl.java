@@ -18,17 +18,13 @@ import org.springframework.transaction.annotation.Transactional;
 @Service("userService")
 public class UserServiceImpl implements UserService {
 
-    @Autowired
-    private UserMapper userMapper;
+    @Autowired private UserMapper userMapper;
 
-    @Autowired
-    private UserProfileMapper userProfileMapper;
+    @Autowired private UserProfileMapper userProfileMapper;
 
-    @Autowired
-    private PasswordEncoder passwordEncoder;
+    @Autowired private PasswordEncoder passwordEncoder;
 
-    @Autowired
-    private OnlineUserService onlineUserService;
+    @Autowired private OnlineUserService onlineUserService;
 
     @Override
     public CommonResponse<?> resetPassword(ResetPasswordRequest request) {

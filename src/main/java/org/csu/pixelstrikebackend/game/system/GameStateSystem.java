@@ -1,5 +1,6 @@
 package org.csu.pixelstrikebackend.game.system;
 
+import org.csu.pixelstrikebackend.config.GameConfig;
 import org.csu.pixelstrikebackend.dto.PlayerState;
 import org.springframework.stereotype.Component;
 
@@ -9,15 +10,17 @@ import java.util.Map;
 @Component
 public class GameStateSystem {
 
-    private static final int PLAYER_MAX_HEALTH = 100;
-    private static final int INITIAL_AMMO = 30;
-    private static final long RESPAWN_TIME_MS = 3000;
+    private final GameConfig gameConfig;
+
+    public GameStateSystem(GameConfig gameConfig) {
+        this.gameConfig = gameConfig;
+    }
 
     public void update(Map<String, PlayerState> playerStates, Map<String, Long> deadPlayerTimers) {
         // 将死亡玩家加入计时器
         for (PlayerState player : playerStates.values()) {
             if (player.getCurrentAction() == PlayerState.PlayerActionState.DEAD && !deadPlayerTimers.containsKey(player.getPlayerId())) {
-                deadPlayerTimers.put(player.getPlayerId(), System.currentTimeMillis() + RESPAWN_TIME_MS);
+                deadPlayerTimers.put(player.getPlayerId(), System.currentTimeMillis() + gameConfig.getPlayer().getRespawnTimeMs());
             }
         }
 
@@ -37,8 +40,8 @@ public class GameStateSystem {
     }
 
     private void respawnPlayer(PlayerState player) {
-        player.setHealth(PLAYER_MAX_HEALTH);
-        player.setAmmo(INITIAL_AMMO);
+        player.setHealth(gameConfig.getPlayer().getMaxHealth());
+        player.setAmmo(gameConfig.getPlayer().getInitialAmmo());
         player.setCurrentAction(PlayerState.PlayerActionState.IDLE);
         player.setX(100); // 重置到出生点
         player.setY(100);
