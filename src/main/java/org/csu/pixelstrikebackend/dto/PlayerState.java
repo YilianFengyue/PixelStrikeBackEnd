@@ -3,6 +3,7 @@ package org.csu.pixelstrikebackend.dto;
 
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 @Data
 @NoArgsConstructor
@@ -36,6 +37,9 @@ public class PlayerState {
     private boolean canDoubleJump = false;
     private boolean justJumped;
 
+    // 是否在地面上的标志
+    private boolean isOnGround = false;
+
     public PlayerState(PlayerState original) {
         this.playerId = original.playerId;
         this.x = original.x;
@@ -51,9 +55,11 @@ public class PlayerState {
         this.currentAction = original.currentAction;
         this.canDoubleJump = original.canDoubleJump;
         this.justJumped = original.justJumped;
+        this.isOnGround = original.isOnGround;
     }
 
     public enum PlayerActionState {
         IDLE, RUN, JUMP, FALL, SHOOT, HIT, DEAD
     }
+
 }

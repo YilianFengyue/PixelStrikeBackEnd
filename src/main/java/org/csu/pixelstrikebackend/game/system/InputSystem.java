@@ -45,7 +45,7 @@ public class InputSystem {
             if (command.getMoveInput() != 0) {
                 player.setVelocityX(command.getMoveInput() * MOVE_SPEED);
                 player.setFacingRight(command.getMoveInput() > 0);
-                if (player.getY() >= gameConfig.getPhysics().getGroundY()) {
+                if (player.isOnGround()) {
                     player.setCurrentAction(PlayerState.PlayerActionState.RUN);
                 }
             }
@@ -67,10 +67,11 @@ public class InputSystem {
 
     private void handleJump(PlayerState player) {
         final double JUMP_STRENGTH = -20.0;
-        if (player.getY() >= gameConfig.getPhysics().getGroundY()) {
+        if (player.isOnGround()) {
             player.setVelocityY(JUMP_STRENGTH);
-            player.setCanDoubleJump(true);
-        } else if (player.isCanDoubleJump()) {
+            player.setCanDoubleJump(true); // 刷新二段跳能力
+            player.setOnGround(false); // 跳起来后立刻就不在地面上了
+        }  else if (player.isCanDoubleJump()) {
             player.setVelocityY(JUMP_STRENGTH);
             player.setCanDoubleJump(false);
         }
