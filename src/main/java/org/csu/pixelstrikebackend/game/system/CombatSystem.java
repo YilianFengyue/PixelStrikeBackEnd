@@ -1,3 +1,5 @@
+// src/main/java/org/csu/pixelstrikebackend/game/system/CombatSystem.java
+
 package org.csu.pixelstrikebackend.game.system;
 
 import org.csu.pixelstrikebackend.config.GameConfig;
@@ -5,7 +7,6 @@ import org.csu.pixelstrikebackend.dto.GameStateSnapshot.GameEvent;
 import org.csu.pixelstrikebackend.dto.PlayerState;
 import org.springframework.stereotype.Component;
 
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
@@ -20,15 +21,22 @@ public class CombatSystem {
 
     public void update(Map<String, PlayerState> playerStates, List<GameEvent> events) {
         for (PlayerState attacker : playerStates.values()) {
-            // 只处理处于射击状态的玩家
             if (attacker.getCurrentAction() != PlayerState.PlayerActionState.SHOOT) {
                 continue;
             }
 
+            // 【核心修正】：射击后，将状态恢复为一个中性状态，让InputSystem在下一帧决定是IDLE还是FALL
+            // 这样就不会错误地覆盖掉RUNNING状态
+            attacker.setCurrentAction(PlayerState.PlayerActionState.IDLE);
+
+
             for (PlayerState target : playerStates.values()) {
                 if (isHit(attacker, target)) {
                     applyDamageAndKnockback(attacker, target, events);
-                    // 一次只能击中一个目标
+                    // 扣除弹药的操作应该在这里，因为确实发生了一次射击
+                    if(attacker.getAmmo() > 0) {
+                        attacker.setAmmo(attacker.getAmmo() - 1);
+                    }
                     break;
                 }
             }
@@ -54,18 +62,14 @@ public class CombatSystem {
     }
 
     private boolean isHit(PlayerState attacker, PlayerState target) {
-        // 不能打自己或已死亡的玩家
         if (target.getPlayerId().equals(attacker.getPlayerId()) || target.getCurrentAction() == PlayerState.PlayerActionState.DEAD) {
             return false;
         }
-
         boolean facingTarget = (attacker.isFacingRight() && target.getX() > attacker.getX()) ||
-                             (!attacker.isFacingRight() && target.getX() < attacker.getX());
-
+                (!attacker.isFacingRight() && target.getX() < attacker.getX());
         if (!facingTarget) {
             return false;
         }
-
         return Math.abs(attacker.getY() - target.getY()) < gameConfig.getPlayer().getHeight();
     }
 

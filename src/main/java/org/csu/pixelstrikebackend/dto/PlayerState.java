@@ -34,6 +34,7 @@ public class PlayerState {
 
     // 二段跳属性
     private boolean canDoubleJump = false;
+    private boolean justJumped;
 
     public PlayerState(PlayerState original) {
         this.playerId = original.playerId;
@@ -49,6 +50,7 @@ public class PlayerState {
         this.isFacingRight = original.isFacingRight;
         this.currentAction = original.currentAction;
         this.canDoubleJump = original.canDoubleJump;
+        this.justJumped = original.justJumped;
     }
 
     public enum PlayerActionState {
