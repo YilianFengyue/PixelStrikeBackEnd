@@ -15,8 +15,8 @@ public class Match {
     private Long id;
     @TableField("game_mode")
     private String gameMode;
-    @TableField("map_name")
-    private String mapName;
+    @TableField("map_id")
+    private Integer mapId;
     @TableField("start_time")
     private LocalDateTime startTime;
     @TableField("end_time")

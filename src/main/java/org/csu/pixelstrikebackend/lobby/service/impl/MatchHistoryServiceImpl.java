@@ -5,9 +5,11 @@ import org.csu.pixelstrikebackend.lobby.common.CommonResponse;
 import org.csu.pixelstrikebackend.lobby.dto.MatchDetailDTO;
 import org.csu.pixelstrikebackend.lobby.dto.MatchHistoryDTO;
 import org.csu.pixelstrikebackend.lobby.dto.ParticipantStatsDTO;
+import org.csu.pixelstrikebackend.lobby.entity.GameMap;
 import org.csu.pixelstrikebackend.lobby.entity.Match;
 import org.csu.pixelstrikebackend.lobby.entity.MatchParticipant;
 import org.csu.pixelstrikebackend.lobby.entity.UserProfile;
+import org.csu.pixelstrikebackend.lobby.mapper.MapMapper;
 import org.csu.pixelstrikebackend.lobby.mapper.MatchMapper;
 import org.csu.pixelstrikebackend.lobby.mapper.MatchParticipantMapper;
 import org.csu.pixelstrikebackend.lobby.mapper.UserProfileMapper;
@@ -28,6 +30,8 @@ public class MatchHistoryServiceImpl implements MatchHistoryService {
     private MatchParticipantMapper matchParticipantMapper;
     @Autowired
     private UserProfileMapper userProfileMapper;
+    @Autowired
+    private MapMapper mapMapper;
 
     @Override
     public CommonResponse<?> getMatchHistory(Integer userId) {
@@ -51,10 +55,16 @@ public class MatchHistoryServiceImpl implements MatchHistoryService {
         List<MatchHistoryDTO> historyList = participations.stream().map(p -> {
             Match match = matchMap.get(p.getMatchId());
             if (match == null) return null;
+            /**暂未修改MatchHistoryDTO，通过mapId来获取mapName并返回
+             *
+             */
+            int mapId = match.getMapId();
+            GameMap map = mapMapper.selectById(mapId);
             MatchHistoryDTO dto = new MatchHistoryDTO();
             dto.setMatchId(match.getId());
             dto.setGameMode(match.getGameMode());
-            dto.setMapName(match.getMapName());
+            dto.setMapName(map.getName());
+            dto.setCharacterId(p.getCharacterId());
             dto.setStartTime(match.getStartTime());
             dto.setRanking(p.getRanking());
             return dto;
@@ -90,6 +100,7 @@ public class MatchHistoryServiceImpl implements MatchHistoryService {
             statsDTO.setUserId(p.getUserId());
             statsDTO.setNickname(profile != null ? profile.getNickname() : "未知玩家");
             statsDTO.setKills(p.getKills());
+            statsDTO.setCharacterId(p.getCharacterId());
             statsDTO.setDeaths(p.getDeaths());
             statsDTO.setRanking(p.getRanking());
             return statsDTO;
@@ -97,9 +108,14 @@ public class MatchHistoryServiceImpl implements MatchHistoryService {
 
         // 6. 组装最终的对局详情DTO
         MatchDetailDTO detailDTO = new MatchDetailDTO();
+        /**
+         * 暂时未修改MatchDetailDTO，通过mapId来获取name
+         */
+        int mapId = match.getMapId();
+        GameMap map = mapMapper.selectById(mapId);
         detailDTO.setMatchId(match.getId());
         detailDTO.setGameMode(match.getGameMode());
-        detailDTO.setMapName(match.getMapName());
+        detailDTO.setMapName(map.getName());
         detailDTO.setStartTime(match.getStartTime());
         detailDTO.setEndTime(match.getEndTime());
         detailDTO.setParticipants(participantStats);

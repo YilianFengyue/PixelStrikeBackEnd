@@ -11,4 +11,6 @@ public class PlayerInRoomDTO {
     private Integer userId;
     private String nickname;
     private boolean isHost;
+    private Integer characterId;     // **新增**
+    private String characterName;    // **新增**
 }

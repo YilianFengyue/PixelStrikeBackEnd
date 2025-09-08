@@ -36,6 +36,13 @@ public class GameRoom {
     private final WebSocketBroadcastService broadcaster;
     private final GameRoomManager roomManager;
 
+    /**TODO 后续可扩展玩家角色
+     *
+     */
+    // **新增字段：用于存储玩家和他们的角色选择**
+    private final Map<Integer, Integer> playerCharacterSelections;
+
+
     // --- 房间状态 ---
     private final String roomId;
     private final Map<String, PlayerState> playerStates = new ConcurrentHashMap<>();
@@ -68,7 +75,7 @@ public class GameRoom {
                     GameCountdownSystem gameCountdownSystem,
                     GameTimerSystem gameTimerSystem,
                     WebSocketBroadcastService broadcaster,
-                    List<Integer> playerIds,
+                    Map<Integer, Integer> playerCharacterSelections,
                     GameConfig gameConfig) {
         this.roomId = roomId;
         this.roomManager = roomManager;
@@ -81,7 +88,8 @@ public class GameRoom {
         this.gameTimerSystem = gameTimerSystem;
         this.broadcaster = broadcaster;
         this.gameStartTime = System.currentTimeMillis();
-        this.expectedPlayerCount = playerIds.size();
+        this.playerCharacterSelections = playerCharacterSelections;
+        this.expectedPlayerCount = playerCharacterSelections.size();
         this.countdownRoomState = new GameCountdownSystem.RoomState(roomId);
         this.gameConfig = gameConfig;
     }
@@ -274,9 +282,12 @@ public class GameRoom {
             participant.setKills(playerState.getKills());
             participant.setDeaths(playerState.getDeaths());
             participant.setRanking(i + 1); // 设置排名
+            /**TODO 后续扩展在此处添加每个玩家所操作的角色
+             * 目前默认设置操作角色ID为1
+             */
+            participant.setCharacterId(1);
             results.add(participant);
         }
-
         this.roomManager.onGameConcluded(Long.parseLong(this.roomId), results);
     }
 }

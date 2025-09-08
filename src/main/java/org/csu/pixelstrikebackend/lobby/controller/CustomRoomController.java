@@ -16,9 +16,15 @@ public class CustomRoomController {
     private CustomRoomService customRoomService;
 
     @PostMapping("/create")
-    public CommonResponse<?> createRoom(ServerWebExchange request) {
+    public CommonResponse<?> createRoom(@RequestParam(required = false, defaultValue = "4") Integer mapId, ServerWebExchange request) {
         Integer userId = (Integer) request.getAttribute("userId");
-        return customRoomService.createRoom(userId);
+        return customRoomService.createRoom(userId, mapId);
+    }
+
+    @PostMapping("/character/change")
+    public CommonResponse<?> changeCharacter(@RequestParam Integer characterId, ServerWebExchange request) {
+        Integer userId = (Integer) request.getAttribute("userId");
+        return customRoomService.changeCharacter(userId, characterId);
     }
 
     @PostMapping("/join")

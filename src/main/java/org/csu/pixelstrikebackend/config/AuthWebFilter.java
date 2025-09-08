@@ -18,7 +18,9 @@ public class AuthWebFilter implements WebFilter {
     private static final List<String> EXCLUDED_PATHS = List.of(
             "/auth/login",
             "/auth/register",
-            "/uploads/"
+            "/uploads/",
+            "/game-data/",
+            "/users/reset-password"
     );
 
     @Override

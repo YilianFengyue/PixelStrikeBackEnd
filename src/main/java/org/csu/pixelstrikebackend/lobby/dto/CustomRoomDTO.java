@@ -11,4 +11,6 @@ public class CustomRoomDTO {
     private List<PlayerInRoomDTO> players;
     private int maxSize = 3; // 和匹配房间保持一致
     private String roomStatus; // e.g., "WAITING", "IN_GAME"
+    private Integer mapId; // **新增**
+    private String mapName; // **新增**
 }

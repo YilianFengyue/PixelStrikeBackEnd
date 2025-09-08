@@ -50,17 +50,16 @@ public class GameRoomManager implements GameLobbyBridge {
 
     // --- 实现桥接接口的方法 ---
     @Override
-    public void onMatchSuccess(Long gameId, List<Integer> playerIds) {
+    public void onMatchSuccess(Long gameId, Map<Integer, Integer> playerCharacterSelections) {
         String roomId = gameId.toString();
         System.out.println("游戏模块收到通知: 创建房间 " + roomId);
 
         activeRooms.computeIfAbsent(roomId, id -> {
+            // **核心改动2：将 character selections 传递给 GameRoom 的构造函数**
             GameRoom newRoom = new GameRoom(id, this,
                     inputSystem, combatSystem, physicsSystem,
                     gameStateSystem, gameConditionSystem, gameCountdownSystem,
-                    gameTimerSystem, broadcaster, playerIds, gameConfig);
-            // 不再提交到线程池
-            // roomExecutor.submit(newRoom);
+                    gameTimerSystem, broadcaster, playerCharacterSelections, gameConfig);
             return newRoom;
         });
     }

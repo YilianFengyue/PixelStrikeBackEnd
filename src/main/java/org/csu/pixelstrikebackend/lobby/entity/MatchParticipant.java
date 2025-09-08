@@ -13,6 +13,8 @@ public class MatchParticipant {
     private Long id;
     @TableField("match_id")
     private Long matchId;
+    @TableField("character_id") // 明确数据库字段名
+    private Integer characterId;
     @TableField("user_id")
     private Integer userId;
     private Integer ranking;

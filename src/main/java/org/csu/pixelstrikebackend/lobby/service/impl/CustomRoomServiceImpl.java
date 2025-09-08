@@ -5,14 +5,9 @@ import org.csu.pixelstrikebackend.game.GameLobbyBridge;
 import org.csu.pixelstrikebackend.lobby.common.CommonResponse;
 import org.csu.pixelstrikebackend.lobby.dto.CustomRoomDTO;
 import org.csu.pixelstrikebackend.lobby.dto.PlayerInRoomDTO;
-import org.csu.pixelstrikebackend.lobby.entity.CustomRoom;
-import org.csu.pixelstrikebackend.lobby.entity.Friend;
-import org.csu.pixelstrikebackend.lobby.entity.Match;
-import org.csu.pixelstrikebackend.lobby.entity.UserProfile;
+import org.csu.pixelstrikebackend.lobby.entity.*;
 import org.csu.pixelstrikebackend.lobby.enums.UserStatus;
-import org.csu.pixelstrikebackend.lobby.mapper.FriendMapper;
-import org.csu.pixelstrikebackend.lobby.mapper.MatchMapper;
-import org.csu.pixelstrikebackend.lobby.mapper.UserProfileMapper;
+import org.csu.pixelstrikebackend.lobby.mapper.*;
 import org.csu.pixelstrikebackend.lobby.service.CustomRoomService;
 import org.csu.pixelstrikebackend.lobby.service.OnlineUserService;
 import org.csu.pixelstrikebackend.lobby.websocket.WebSocketSessionManager;
@@ -20,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -43,20 +39,45 @@ public class CustomRoomServiceImpl implements CustomRoomService {
     private GameLobbyBridge gameLobbyBridge;
     @Autowired
     private FriendMapper friendMapper; // 注入FriendMapper
+    @Autowired
+    private MapMapper mapMapper;
+    @Autowired
+    private CharacterMapper characterMapper;
 
 
     @Override
-    public CommonResponse<?> createRoom(Integer userId) {
+    public CommonResponse<?> createRoom(Integer userId, Integer mapId) {
+        if (mapMapper.selectById(mapId) == null) {
+            return CommonResponse.createForError("选择的地图不存在");
+        }
         if (playerToRoomMap.containsKey(userId)) {
             return CommonResponse.createForError("你已经在另一个房间里了");
         }
-        CustomRoom newRoom = new CustomRoom(userId);
+        CustomRoom newRoom = new CustomRoom(userId, mapId);
         activeRooms.put(newRoom.getRoomId(), newRoom);
         playerToRoomMap.put(userId, newRoom.getRoomId());
         onlineUserService.updateUserStatus(userId, UserStatus.IN_ROOM);
-
+        notifyFriendsAboutStatusChange(userId, UserStatus.IN_ROOM);
         broadcastRoomUpdate(newRoom.getRoomId());
         return CommonResponse.createForSuccess("房间创建成功", newRoom.getRoomId());
+    }
+
+    @Override
+    public CommonResponse<?> changeCharacter(Integer userId, Integer characterId) {
+        String roomId = playerToRoomMap.get(userId);
+        if (roomId == null) {
+            return CommonResponse.createForError("你不在任何房间中");
+        }
+        if (characterMapper.selectById(characterId) == null) {
+            return CommonResponse.createForError("所选角色不存在");
+        }
+        CustomRoom room = activeRooms.get(roomId);
+        if (room != null) {
+            room.changeCharacter(userId, characterId);
+            broadcastRoomUpdate(roomId); // 广播房间状态更新
+            return CommonResponse.createForSuccessMessage("更换角色成功");
+        }
+        return CommonResponse.createForError("房间不存在");
     }
 
     @Override
@@ -78,6 +99,8 @@ public class CustomRoomServiceImpl implements CustomRoomService {
         room.addPlayer(userId);
         playerToRoomMap.put(userId, roomId);
         onlineUserService.updateUserStatus(userId, UserStatus.IN_ROOM);
+        // 新增: 通知好友状态变更
+        notifyFriendsAboutStatusChange(userId, UserStatus.IN_ROOM);
         broadcastRoomUpdate(roomId);
         return CommonResponse.createForSuccess("加入成功", roomId);
     }
@@ -127,6 +150,7 @@ public class CustomRoomServiceImpl implements CustomRoomService {
 
         room.removePlayer(userId);
         onlineUserService.updateUserStatus(userId, UserStatus.ONLINE);
+        notifyFriendsAboutStatusChange(userId, UserStatus.ONLINE);
 
         // 如果房间空了，直接解散
         if (room.isEmpty()) {
@@ -146,7 +170,8 @@ public class CustomRoomServiceImpl implements CustomRoomService {
     @Override
     public CommonResponse<?> inviteFriend(Integer inviterId, Integer friendId) {
         String roomId = playerToRoomMap.get(inviterId);
-        if (roomId == null) {
+        CustomRoom room = activeRooms.get(roomId); // **修改点 1：获取房间对象**
+        if (room == null) { // **修改点 2：用房间对象判断**
             return CommonResponse.createForError("你必须在房间内才能邀请好友");
         }
         // 修复点1: 增加校验
@@ -166,12 +191,16 @@ public class CustomRoomServiceImpl implements CustomRoomService {
         }
 
         UserProfile inviterProfile = userProfileMapper.selectById(inviterId);
-        Map<String, Object> invitation = Map.of(
-                "type", "room_invitation",
-                "roomId", roomId,
-                "inviterId", inviterId,
-                "inviterNickname", inviterProfile.getNickname()
-        );
+        GameMap map = mapMapper.selectById(room.getMapId()); // **新增：查询地图信息**
+        Map<String, Object> invitation = new HashMap<>();
+        invitation.put("type", "room_invitation");
+        invitation.put("roomId", roomId);
+        invitation.put("inviterId", inviterId);
+        invitation.put("inviterNickname", inviterProfile.getNickname());
+        if (map != null) {
+            invitation.put("mapId", map.getId());
+            invitation.put("mapName", map.getName());
+        }
         webSocketSessionManager.sendMessageToUser(friendId, invitation);
         return CommonResponse.createForSuccessMessage("邀请已发送");
     }
@@ -195,7 +224,7 @@ public class CustomRoomServiceImpl implements CustomRoomService {
         room.removePlayer(targetId);
         playerToRoomMap.remove(targetId);
         onlineUserService.updateUserStatus(targetId, UserStatus.ONLINE);
-
+        notifyFriendsAboutStatusChange(targetId, UserStatus.ONLINE);
         // 发送被踢通知
         webSocketSessionManager.sendMessageToUser(targetId, Map.of("type", "kicked_from_room", "roomId", roomId));
         // 广播房间更新
@@ -237,6 +266,7 @@ public class CustomRoomServiceImpl implements CustomRoomService {
         room.getPlayers().forEach(playerId -> {
             playerToRoomMap.remove(playerId);
             onlineUserService.updateUserStatus(playerId, UserStatus.ONLINE);
+            notifyFriendsAboutStatusChange(playerId, UserStatus.ONLINE);
         });
 
         activeRooms.remove(roomId);
@@ -254,10 +284,12 @@ public class CustomRoomServiceImpl implements CustomRoomService {
             return CommonResponse.createForError("房间未满员，无法开始游戏");
         }
 
+        Map<Integer, Integer> selections = room.getPlayerCharacterSelections();
+
         // 1. 创建对局记录
         Match newMatch = new Match();
         newMatch.setGameMode("自定义房间");
-        newMatch.setMapName("默认地图");
+        newMatch.setMapId(room.getMapId());
         newMatch.setStartTime(LocalDateTime.now());
         matchMapper.insert(newMatch);
         Long gameId = newMatch.getId();
@@ -265,21 +297,57 @@ public class CustomRoomServiceImpl implements CustomRoomService {
         // 2. 更新房间和玩家状态
         room.setStatus("IN_GAME");
         List<Integer> playerIds = room.getPlayers().stream().toList();
-        playerIds.forEach(pid -> onlineUserService.updateUserStatus(pid, UserStatus.IN_GAME));
-
+        playerIds.forEach(pid -> {
+            onlineUserService.updateUserStatus(pid, UserStatus.IN_GAME);
+            // 新增: 通知每个玩家的好友其状态变更
+            notifyFriendsAboutStatusChange(pid, UserStatus.IN_GAME);
+        });
         // 3. 通知游戏模块准备游戏
-        gameLobbyBridge.onMatchSuccess(gameId, playerIds);
+        gameLobbyBridge.onMatchSuccess(gameId, selections);
 
         // 4. 通知房间内所有玩家，游戏开始
         String gameServerAddress = "ws://127.0.0.1:8080/game";
-        Map<String, Object> startGameMessage = Map.of(
-                "type", "game_start",
-                "gameId", gameId,
-                "serverAddress", gameServerAddress
-        );
+        GameMap map = mapMapper.selectById(room.getMapId()); // **新增: 查询地图信息**
+        Map<String, Object> startGameMessage = new HashMap<>();
+        startGameMessage.put("type", "game_start");
+        startGameMessage.put("gameId", gameId);
+        startGameMessage.put("serverAddress", gameServerAddress);
+        startGameMessage.put("characterSelections", selections);
+        if (map != null) {
+            startGameMessage.put("mapId", map.getId());
+            startGameMessage.put("mapName", map.getName());
+        }
         broadcastToRoom(roomId, startGameMessage);
-
         return CommonResponse.createForSuccess("游戏开始", gameId);
+    }
+
+    /**
+     * 辅助方法，用于通知好友状态变更
+     * @param userId 状态变更的用户ID
+     * @param status 新的状态
+     */
+    private void notifyFriendsAboutStatusChange(Integer userId, UserStatus status) {
+        List<UserProfile> friends = friendMapper.selectFriendsProfiles(userId);
+        if (friends.isEmpty()) {
+            return;
+        }
+
+        UserProfile userProfile = userProfileMapper.selectById(userId);
+        if (userProfile == null) return;
+
+        Map<String, Object> notification = Map.of(
+                "type", "status_update",
+                "userId", userId,
+                "nickname", userProfile.getNickname(),
+                "status", status.toString() // 使用枚举的字符串形式
+        );
+
+        System.out.println("Notifying online friends of user " + userId + " about status change to " + status);
+        for (UserProfile friend : friends) {
+            if (onlineUserService.isUserOnline(friend.getUserId())) {
+                webSocketSessionManager.sendMessageToUser(friend.getUserId(), notification);
+            }
+        }
     }
 
     private void broadcastRoomUpdate(String roomId) {
@@ -294,8 +362,18 @@ public class CustomRoomServiceImpl implements CustomRoomService {
         Map<Integer, String> idToNicknameMap = profiles.stream()
                 .collect(Collectors.toMap(UserProfile::getUserId, UserProfile::getNickname));
 
+        Map<Integer, String> characterIdToNameMap = characterMapper.selectList(null).stream()
+                .collect(Collectors.toMap(GameCharacter::getId, GameCharacter::getName));
+        GameMap map = mapMapper.selectById(room.getMapId());
+
         List<PlayerInRoomDTO> playerDTOs = room.getPlayers().stream()
-                .map(pid -> new PlayerInRoomDTO(pid, idToNicknameMap.getOrDefault(pid, "未知玩家"), pid.equals(room.getHostId())))
+                .map(pid -> new PlayerInRoomDTO(
+                        pid,
+                        idToNicknameMap.getOrDefault(pid, "未知玩家"),
+                        pid.equals(room.getHostId()),
+                        room.getPlayerCharacterSelections().get(pid), // 获取角色ID
+                        characterIdToNameMap.get(room.getPlayerCharacterSelections().get(pid)) // 获取角色名
+                ))
                 .collect(Collectors.toList());
 
         CustomRoomDTO dto = new CustomRoomDTO();
@@ -303,6 +381,10 @@ public class CustomRoomServiceImpl implements CustomRoomService {
         dto.setHostId(room.getHostId());
         dto.setPlayers(playerDTOs);
         dto.setRoomStatus(room.getStatus());
+        if (map != null) {
+            dto.setMapId(map.getId());
+            dto.setMapName(map.getName());
+        }
         return dto;
     }
 
