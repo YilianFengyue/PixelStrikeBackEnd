@@ -1,83 +1,74 @@
+// 文件路径: src/main/java/org/csu/pixelstrikebackend/game/websocket/GameWebSocketHandler.java
 package org.csu.pixelstrikebackend.game.websocket;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonObject;
-import org.csu.pixelstrikebackend.dto.UserCommand;
-import org.csu.pixelstrikebackend.game.service.GameRoom;
-import org.csu.pixelstrikebackend.game.service.GameRoomManager;
-import org.csu.pixelstrikebackend.lobby.enums.UserStatus;
-import org.csu.pixelstrikebackend.lobby.service.OnlineUserService;
-import org.csu.pixelstrikebackend.lobby.util.JwtUtil;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.csu.pixelstrikebackend.game.service.GameRoomService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.socket.CloseStatus;
 import org.springframework.web.reactive.socket.WebSocketHandler;
 import org.springframework.web.reactive.socket.WebSocketMessage;
 import org.springframework.web.reactive.socket.WebSocketSession;
-import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
-
-import java.util.Map;
 
 @Component
 public class GameWebSocketHandler implements WebSocketHandler {
 
     @Autowired
-    private GameRoomManager roomManager;
-    @Autowired
-    private OnlineUserService onlineUserService;
-    private final Gson gson = new Gson();
+    private GameRoomService roomService;
+
+    private final ObjectMapper mapper = new ObjectMapper();
 
     @Override
     public Mono<Void> handle(WebSocketSession session) {
-        String roomId = UriComponentsBuilder.fromUri(session.getHandshakeInfo().getUri())
-                .build()
-                .getQueryParams()
-                .getFirst("gameId");
-
-        String token = UriComponentsBuilder.fromUri(session.getHandshakeInfo().getUri())
-                .build()
-                .getQueryParams()
-                .getFirst("token");
-
-        Integer userId = (token != null) ? JwtUtil.verifyTokenAndGetUserId(token) : null;
-
-
-        if (roomId == null || roomId.trim().isEmpty() || userId == null) {
-            return session.close(CloseStatus.BAD_DATA.withReason("RoomId or UserId is missing"));
+        Integer userId = (Integer) session.getAttributes().get("userId");
+        if (userId == null) {
+            return session.close(CloseStatus.POLICY_VIOLATION.withReason("Invalid Token or Missing userId"));
         }
-        session.getAttributes().put("userId", userId);
 
-        roomManager.addPlayerToRoom(roomId, session, userId);
-        onlineUserService.updateUserStatus(userId, UserStatus.IN_GAME);
+        // 1. 将连接建立的操作链接到主处理流的开始
+        Mono<Void> setupFlow = Mono.fromRunnable(() -> roomService.addSession(session))
+                .then(roomService.handleHello(session));
 
-        return session.receive()
+        // 2. 创建一个处理所有入站消息的流
+        Mono<Void> inputHandlingFlow = session.receive()
                 .map(WebSocketMessage::getPayloadAsText)
-                .flatMap(payload -> {
-                    GameRoom room = roomManager.getRoomForPlayer(session.getId());
-                    if (room != null) {
-                        try {
-                            JsonObject jsonObject = gson.fromJson(payload, JsonObject.class);
-                            if (jsonObject.has("type") && "ping".equals(jsonObject.get("type").getAsString())) {
-                                long timestamp = jsonObject.get("timestamp").getAsLong();
-                                Map<String, Object> pongMessage = Map.of("type", "pong", "timestamp", timestamp);
-                                return session.send(Mono.just(session.textMessage(gson.toJson(pongMessage))));
-                            } else {
-                                UserCommand command = gson.fromJson(payload, UserCommand.class);
-                                command.setPlayerId(session.getId());
-                                room.queueCommand(command);
-                            }
-                        } catch (Exception e) {
-                            System.err.println("解析UserCommand失败: " + e.getMessage());
-                        }
-                    }
-                    return Mono.empty();
-                })
-                .doOnError(error -> System.err.println("Error on WebSocket input: " + error.getMessage()))
-                .doFinally(signalType -> {
-                    System.out.println("Connection closed for session: " + session.getId() + ", Status: " + signalType);
-                    roomManager.removePlayerFromRoom(session);
-                })
+                .flatMap(payload -> handlePayload(session, payload)) // 将每个 payload 交给 handlePayload 处理
                 .then();
+
+        // 3. 将设置流和消息处理流合并，并在最终完成后执行清理
+        return Mono.when(setupFlow, inputHandlingFlow)
+                .doFinally(signalType -> {
+                    // 使用 thenReturn().subscribe() 确保清理操作在流终止时执行
+                    roomService.handleLeave(session).then(Mono.fromRunnable(() -> {
+                        roomService.removeSession(session);
+                        System.out.println("Game WebSocket connection closed for session: " + session.getId() + " with signal: " + signalType);
+                    })).subscribe();
+                });
+    }
+
+    // handlePayload 现在返回 Mono<Void> 以便链接到主处理流中
+    private Mono<Void> handlePayload(WebSocketSession session, String payload) {
+        try {
+            JsonNode root = mapper.readTree(payload);
+            final String type = root.path("type").asText("");
+
+            // 根据消息类型，返回对应的响应式操作
+            switch (type) {
+                case "join":
+                    return roomService.handleJoin(session, root);
+                case "state":
+                    return roomService.handleState(session, root);
+                case "shot":
+                    return roomService.handleShot(session, root);
+                default:
+                    System.out.println("IGNORED msg type=" + type + " raw=" + payload);
+                    return Mono.empty(); // 对于未知类型，返回一个完成的 Mono
+            }
+        } catch (Exception e) {
+            System.err.println("Error parsing WebSocket message payload: " + e.getMessage());
+            return Mono.error(e); // 如果解析失败，将异常传递给流
+        }
     }
 }
