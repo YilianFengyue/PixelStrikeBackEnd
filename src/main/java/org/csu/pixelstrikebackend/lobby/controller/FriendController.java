@@ -63,6 +63,12 @@ public class FriendController {
         return friendService.getFriendList(userId);
     }
 
+    @DeleteMapping("/{friendId}")
+    public CommonResponse<?> deleteFriend(@PathVariable Integer friendId, ServerWebExchange exchange) {
+        Integer currentUserId = exchange.getAttribute("userId");
+        return friendService.deleteFriend(currentUserId, friendId);
+    }
+
     /**
      * **接口2: 获取好友详情**
      * 用于好友详情页，当用户从列表点击某个好友时调用。
