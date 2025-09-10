@@ -3,6 +3,7 @@ package org.csu.pixelstrikebackend.game.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.csu.pixelstrikebackend.game.geom.HitMath; // 确保你项目中存在这个类
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
@@ -16,12 +17,40 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class GameRoomService {
 
-    // 所有的字段声明都保持原样...
-    private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
     private final ObjectMapper mapper = new ObjectMapper();
-    // 假设您还有其他字段，如 gameManager, hpByPlayer 等，请保持它们不变
     private final GameManager gameManager;
 
+    // --- 从 DemoGameRoomService 完整移植的核心游戏逻辑字段 ---
+
+    // 会话管理
+    private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
+
+    // 节流控制
+    private final Map<String, RateCounter> anyCounterBySession = new ConcurrentHashMap<>();
+    private final Map<String, RateCounter> stateCounterBySession = new ConcurrentHashMap<>();
+
+    // 快照缓存 (用于服务器回滚验证)
+    private static final long SNAPSHOT_KEEP_MS = 2000;
+    private final Map<Integer, Deque<StateSnapshot>> snapshotsByPlayer = new ConcurrentHashMap<>();
+
+    // 权威状态 (服务器说了算)
+    private static final int MAX_HP = 100;
+    private final Map<Integer, Integer> hpByPlayer = new ConcurrentHashMap<>();
+    private final Set<Integer> deadSet = ConcurrentHashMap.newKeySet();
+
+    // 客户端时钟同步
+    private final Map<String, ClockAlign> clockBySession = new ConcurrentHashMap<>();
+
+    // 客户端状态包序列号 (防止乱序)
+    private final Map<Integer, Long> lastSeqByPlayer = new ConcurrentHashMap<>();
+
+    // 命中判定常量 (与客户端一致)
+    private static final double HB_OFF_X = 80.0;
+    private static final double HB_OFF_Y = 20.0;
+    private static final double HB_W     = 86.0;
+    private static final double HB_H     = 160.0;
+    private static final double KB_X = 220.0;
+    private static final double KB_Y = 0.0;
 
     @Autowired
     public GameRoomService(@Lazy GameManager gameManager) {
@@ -30,14 +59,27 @@ public class GameRoomService {
 
     public void prepareGame(Long gameId, List<Integer> playerIds) {
         System.out.println("Preparing new game " + gameId + " with players: " + playerIds);
+        // 初始化本局所有玩家的生命值等状态
+        for(Integer userId : playerIds) {
+            hpByPlayer.put(userId, MAX_HP);
+            deadSet.remove(userId);
+            snapshotsByPlayer.remove(userId); // 清理上一局可能残留的快照
+            lastSeqByPlayer.remove(userId); // 清理上一局的序列号
+        }
     }
 
     public void addSession(WebSocketSession s) {
         sessions.put(s.getId(), s);
+        anyCounterBySession.put(s.getId(), new RateCounter(200));
+        stateCounterBySession.put(s.getId(), new RateCounter(120));
+        clockBySession.put(s.getId(), new ClockAlign());
     }
 
     public void removeSession(WebSocketSession s) {
         sessions.remove(s.getId());
+        anyCounterBySession.remove(s.getId());
+        stateCounterBySession.remove(s.getId());
+        clockBySession.remove(s.getId());
     }
 
     public void handleJoin(WebSocketSession session) {
@@ -51,6 +93,10 @@ public class GameRoomService {
 
         System.out.println("Player " + userId + " is joining game " + gameId);
 
+        // 初始化玩家游戏内状态
+        hpByPlayer.putIfAbsent(userId, MAX_HP);
+        deadSet.remove(userId);
+
         // 构造 welcome 消息
         ObjectNode welcome = mapper.createObjectNode();
         welcome.put("type", "welcome");
@@ -62,22 +108,88 @@ public class GameRoomService {
         ObjectNode joined = mapper.createObjectNode();
         joined.put("type", "join_broadcast");
         joined.put("id", userId);
-        joined.put("name", "Player " + userId); // 暂时使用占位符名字
+        joined.put("name", "Player " + userId);
         broadcastToOthers(session, joined.toString());
     }
 
     public void handleState(WebSocketSession session, JsonNode root) {
-        // 你的游戏状态处理逻辑...
         Integer userId = (Integer) session.getAttributes().get("userId");
         if(userId == null) return;
 
+        long now = System.currentTimeMillis();
+        if (!allowAnyMessage(session, now) || !allowStateMessage(session, now)) {
+            return;
+        }
+
+        long cliTS = root.path("ts").asLong(0);
+        updateClock(session, cliTS, now);
+
+        long seq = root.path("seq").asLong(0);
+        if (!acceptStateSeq(userId, seq)) {
+            return; // 丢弃乱序或过时的包
+        }
+
+        double x = root.path("x").asDouble(), y = root.path("y").asDouble();
+        double vx = root.path("vx").asDouble(), vy = root.path("vy").asDouble();
+        boolean facing = root.path("facing").asBoolean(), onGround = root.path("onGround").asBoolean();
+
+        recordStateSnapshot(userId, now, cliTS, x, y, vx, vy, facing, onGround);
+
         ObjectNode stateToBroadcast = (ObjectNode) root.deepCopy();
         stateToBroadcast.put("id", userId);
+        stateToBroadcast.put("serverTime", now);
         broadcastToOthers(session, stateToBroadcast.toString());
     }
 
     public void handleShot(WebSocketSession session, JsonNode root) {
-        // 你的射击处理逻辑...
+        Integer shooterId = (Integer) session.getAttributes().get("userId");
+        if (shooterId == null) return;
+
+        long now = System.currentTimeMillis();
+        long cliTS = root.path("ts").asLong(0);
+        long shotSrvTS = toServerTime(session, cliTS);
+
+        double ox = root.path("ox").asDouble(), oy = root.path("oy").asDouble();
+        double dx = root.path("dx").asDouble(), dy = root.path("dy").asDouble();
+        double range = root.path("range").asDouble(0);
+        int damage = root.path("damage").asInt(0);
+
+        // 1. 广播射击特效（给所有客户端看）
+        ObjectNode shot = mapper.createObjectNode();
+        shot.put("type", "shot");
+        shot.put("attacker", shooterId);
+        shot.put("by", shooterId); // 兼容字段
+        shot.put("ox", ox); shot.put("oy", oy);
+        shot.put("dx", dx); shot.put("dy", dy);
+        shot.put("range", range);
+        shot.put("srvTS", now);
+        broadcast(shot.toString());
+
+        // 2. 在服务器上进行权威命中判定
+        var hitOpt = validateShot(shooterId, shotSrvTS, ox, oy, dx, dy, range);
+        if (hitOpt.isEmpty()) return; // 未命中
+
+        // 3. 如果命中，计算伤害并广播权威的伤害结果
+        var hit = hitOpt.get();
+        var res = applyDamage(shooterId, hit.victimId, damage);
+
+        double sign = (dx >= 0) ? 1.0 : -1.0;
+        double kx = sign * KB_X;
+        double ky = KB_Y;
+
+        ObjectNode dmg = mapper.createObjectNode();
+        dmg.put("type", "damage");
+        dmg.put("attacker", shooterId);
+        dmg.put("by", shooterId);
+        dmg.put("victim", hit.victimId);
+        dmg.put("damage", damage);
+        dmg.put("hp", res.hp);
+        dmg.put("dead", res.dead);
+        dmg.put("kx", kx);
+        dmg.put("ky", ky);
+        dmg.put("t", hit.t);
+        dmg.put("srvTS", System.currentTimeMillis());
+        broadcast(dmg.toString());
     }
 
     public void handleLeave(WebSocketSession session) {
@@ -90,11 +202,10 @@ public class GameRoomService {
         }
     }
 
-    // --- 【核心修复】广播逻辑与 fxdemoBackend 完全同步 ---
+    // --- 广播逻辑 (保持线程安全版本) ---
 
     public synchronized void broadcast(String json) {
         TextMessage message = new TextMessage(json);
-        // 创建会话列表的副本进行迭代，防止并发修改
         List<WebSocketSession> activeSessions = new ArrayList<>();
         for (WebSocketSession session : sessions.values()) {
             if (session.isOpen()) {
@@ -128,7 +239,6 @@ public class GameRoomService {
     private void sendTo(WebSocketSession session, TextMessage message) {
         try {
             if (session != null && session.isOpen()) {
-                // 【重要】在发送前也加上同步锁，确保发送操作的原子性
                 synchronized (session) {
                     session.sendMessage(message);
                 }
@@ -142,5 +252,190 @@ public class GameRoomService {
         }
     }
 
-    // ...这里保留你所有其他的辅助方法 (interpolateAt, validateShot, applyDamage, 等)...
+    // --- 以下是从 Demo 完整移植的所有辅助方法和内部类 ---
+
+    public boolean allowAnyMessage(WebSocketSession s, long nowMs) {
+        RateCounter rc = anyCounterBySession.get(s.getId());
+        return rc == null || rc.allow(nowMs);
+    }
+
+    public boolean allowStateMessage(WebSocketSession s, long nowMs) {
+        RateCounter rc = stateCounterBySession.get(s.getId());
+        return rc == null || rc.allow(nowMs);
+    }
+
+    public void updateClock(WebSocketSession s, long clientTs, long srvTs) {
+        if (clientTs <= 0) return;
+        ClockAlign ca = clockBySession.get(s.getId());
+        if (ca != null) ca.update(clientTs, srvTs);
+    }
+
+    public long toServerTime(WebSocketSession s, long clientTs) {
+        ClockAlign ca = clockBySession.get(s.getId());
+        return (ca != null) ? ca.toServerTime(clientTs) : clientTs;
+    }
+
+    public void recordStateSnapshot(int playerId, long srvTS, long cliTS, double x, double y, double vx, double vy, boolean facing, boolean onGround) {
+        Deque<StateSnapshot> buf = snapshotsByPlayer.computeIfAbsent(playerId, k -> new ArrayDeque<>());
+        synchronized (buf) {
+            buf.addLast(new StateSnapshot(srvTS, cliTS, x, y, vx, vy, facing, onGround));
+            long min = srvTS - SNAPSHOT_KEEP_MS;
+            while (!buf.isEmpty() && buf.peekFirst().srvTS < min) buf.removeFirst();
+            if (buf.size() > 600) buf.removeFirst();
+        }
+    }
+
+    public Optional<StateSnapshot> interpolateAt(int playerId, long targetSrvTS) {
+        Deque<StateSnapshot> buf = snapshotsByPlayer.get(playerId);
+        if (buf == null || buf.isEmpty()) return Optional.empty();
+        synchronized (buf) {
+            StateSnapshot prev = null, next = null;
+            for (StateSnapshot s : buf) {
+                if (s.srvTS <= targetSrvTS) prev = s;
+                if (s.srvTS >= targetSrvTS) { next = s; break; }
+            }
+            if (prev == null) prev = buf.peekFirst();
+            if (next == null) next = buf.peekLast();
+            if (prev == null) return Optional.empty();
+
+            if (next == null || next == prev || next.srvTS == prev.srvTS) {
+                return Optional.of(prev);
+            }
+
+            double t = (targetSrvTS - prev.srvTS) / (double)(next.srvTS - prev.srvTS);
+            t = Math.max(0, Math.min(1, t));
+
+            return Optional.of(StateSnapshot.lerp(prev, next, t));
+        }
+    }
+
+    public DamageResult applyDamage(int byId, int victimId, int amount) {
+        if (amount <= 0) return new DamageResult(0, false);
+        if (byId == victimId) return new DamageResult(0, false);
+        hpByPlayer.putIfAbsent(victimId, MAX_HP);
+        int hp = hpByPlayer.get(victimId);
+        if (hp <= 0) return new DamageResult(0, true);
+
+        hp = Math.max(0, hp - amount);
+        hpByPlayer.put(victimId, hp);
+        boolean dead = (hp == 0);
+        if (dead) deadSet.add(victimId);
+        return new DamageResult(hp, dead);
+    }
+
+    public Optional<HitInfo> validateShot(int shooterId, long shotSrvTS, double ox, double oy, double dx, double dy, double range) {
+        dx = clampDir(dx);
+        dy = clampDir(dy);
+        double len = Math.hypot(dx, dy);
+        if (len < 1e-6 || range <= 0) return Optional.empty();
+        dx /= len; dy /= len;
+
+        double rx = dx * range, ry = dy * range;
+
+        double bestT = Double.POSITIVE_INFINITY;
+        int bestVictim = -1;
+
+        for (Integer victimId : hpByPlayer.keySet()) {
+            if (victimId.equals(shooterId)) continue;
+            if (deadSet.contains(victimId)) continue;
+
+            Optional<StateSnapshot> sOpt = interpolateAt(victimId, shotSrvTS);
+            if (sOpt.isEmpty()) continue;
+            StateSnapshot s = sOpt.get();
+
+            double minX = s.x + HB_OFF_X;
+            double minY = s.y + HB_OFF_Y;
+            double maxX = minX + HB_W;
+            double maxY = minY + HB_H;
+
+            double tEnter = HitMath.raySegmentVsAABB(ox, oy, rx, ry, minX, minY, maxX, maxY);
+            if (tEnter < bestT) {
+                bestT = tEnter;
+                bestVictim = victimId;
+            }
+        }
+
+        if (bestVictim >= 0 && bestT <= 1.0) {
+            return Optional.of(new HitInfo(bestVictim, bestT));
+        }
+        return Optional.empty();
+    }
+
+    private static double clampDir(double v) {
+        if (Double.isNaN(v) || Double.isInfinite(v)) return 0.0;
+        if (Math.abs(v) > 1e4) return Math.signum(v);
+        return v;
+    }
+
+    public boolean acceptStateSeq(int playerId, long seq) {
+        if (seq <= 0) return true;
+        Long last = lastSeqByPlayer.get(playerId);
+        if (last != null && seq <= last) return false;
+        lastSeqByPlayer.put(playerId, seq);
+        return true;
+    }
+
+    // --- 内部类 ---
+
+    static final class RateCounter {
+        private final int maxPerSecond;
+        private long windowStartMs = 0;
+        private int count = 0;
+        RateCounter(int maxPerSecond) { this.maxPerSecond = maxPerSecond; }
+        synchronized boolean allow(long nowMs) {
+            if (nowMs - windowStartMs >= 1000) { windowStartMs = nowMs; count = 0; }
+            return count++ < maxPerSecond;
+        }
+    }
+
+    public static final class StateSnapshot {
+        public final long srvTS, cliTS;
+        public final double x, y, vx, vy;
+        public final boolean facing, onGround;
+
+        public StateSnapshot(long srvTS, long cliTS, double x, double y, double vx, double vy, boolean facing, boolean onGround) {
+            this.srvTS = srvTS; this.cliTS = cliTS;
+            this.x = x; this.y = y; this.vx = vx; this.vy = vy;
+            this.facing = facing; this.onGround = onGround;
+        }
+
+        public static StateSnapshot lerp(StateSnapshot a, StateSnapshot b, double t) {
+            return new StateSnapshot(
+                    (long) (a.srvTS + (b.srvTS - a.srvTS) * t),
+                    (long) (a.cliTS + (b.cliTS - a.cliTS) * t),
+                    a.x + (b.x - a.x) * t,
+                    a.y + (b.y - a.y) * t,
+                    a.vx + (b.vx - a.vx) * t,
+                    a.vy + (b.vy - a.vy) * t,
+                    (t < 0.5 ? a.facing : b.facing),
+                    (t < 0.5 ? a.onGround : b.onGround)
+            );
+        }
+    }
+
+    static final class ClockAlign {
+        private boolean inited = false;
+        private double offsetMs = 0.0;
+        private static final double ALPHA = 0.1;
+
+        synchronized void update(long cliTs, long srvTs) {
+            double off = srvTs - (double) cliTs;
+            if (!inited) { offsetMs = off; inited = true; }
+            else { offsetMs = offsetMs * (1 - ALPHA) + off * ALPHA; }
+        }
+
+        synchronized long toServerTime(long cliTs) {
+            return (long) (cliTs + offsetMs);
+        }
+    }
+
+    public static final class DamageResult {
+        public final int hp; public final boolean dead;
+        public DamageResult(int hp, boolean dead) { this.hp = hp; this.dead = dead; }
+    }
+
+    public static final class HitInfo {
+        public final int victimId; public final double t;
+        public HitInfo(int victimId, double t) { this.victimId = victimId; this.t = t; }
+    }
 }
