@@ -1,14 +1,15 @@
+// 文件路径: src/main/java/org/csu/pixelstrikebackend/lobby/websocket/UserStatusWebSocketHandler.java
 package org.csu.pixelstrikebackend.lobby.websocket;
 
 import org.csu.pixelstrikebackend.lobby.service.OnlineUserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import org.springframework.web.reactive.socket.WebSocketHandler;
-import org.springframework.web.reactive.socket.WebSocketSession;
-import reactor.core.publisher.Mono;
+import org.springframework.web.socket.CloseStatus;
+import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 @Component
-public class UserStatusWebSocketHandler implements WebSocketHandler {
+public class UserStatusWebSocketHandler extends TextWebSocketHandler {
 
     @Autowired
     private WebSocketSessionManager sessionManager;
@@ -17,35 +18,38 @@ public class UserStatusWebSocketHandler implements WebSocketHandler {
     private OnlineUserService onlineUserService;
 
     @Override
-    public Mono<Void> handle(WebSocketSession session) {
-        // 从握手请求的URI中获取token
-        String token = org.springframework.web.util.UriComponentsBuilder.fromUri(session.getHandshakeInfo().getUri())
-                .build()
-                .getQueryParams()
-                .getFirst("token");
+    public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+        // AuthFilter 已经将 userId 放入了 request attributes，
+        // 而 HttpSessionHandshakeInterceptor 会将它们复制到 WebSocket session 的 attributes 中。
+        Integer userId = (Integer) session.getAttributes().get("userId");
 
-        // 验证token并获取userId
-        Integer userId = (token != null) ? org.csu.pixelstrikebackend.lobby.util.JwtUtil.verifyTokenAndGetUserId(token) : null;
-
-        // 如果在AuthWebFilter中没有成功放入userId，则拒绝连接
         if (userId == null) {
-            System.err.println("WebSocket handshake rejected for session " + session.getId() + ": userId is null or token is invalid.");
-            return session.close(org.springframework.web.reactive.socket.CloseStatus.POLICY_VIOLATION.withReason("User ID not found or token invalid"));
+            System.err.println("Lobby WebSocket handshake rejected: userId not found in session attributes.");
+            session.close(CloseStatus.POLICY_VIOLATION.withReason("User ID not found, authentication failed."));
+            return;
         }
 
-        // 将验证后的userId存入session的attributes中，方便后续使用
-        session.getAttributes().put("userId", userId);
+        // 注意：我们不再需要在这里手动存入 "userId"，拦截器已经帮我们做了。
+        System.out.println("Lobby WebSocket connection established for user: " + userId);
+        sessionManager.addSession(userId, session);
+    }
 
-        // 使用 doOnSubscribe 在连接实际建立时执行操作
-        return Mono.fromRunnable(() -> {
-                    sessionManager.addSession(userId, session);
-                })
-                .then(session.receive() // 持续监听客户端消息（即使我们不处理），以保持连接
-                        .then())
-                .doFinally(signalType -> { // 当连接关闭或出错时，执行清理
-                    System.out.println("WebSocket connection closed for user: " + userId + " with signal: " + signalType);
-                    sessionManager.removeSession(userId);
-                    onlineUserService.removeUser(userId);
-                });
+    @Override
+    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
+        Integer userId = (Integer) session.getAttributes().get("userId");
+        if (userId != null) {
+            System.out.println("Lobby WebSocket connection closed for user: " + userId + " with status: " + status);
+            sessionManager.removeSession(userId);
+
+            // 用户的在线状态由登出(logout)或游戏结束逻辑管理，这里不需要处理
+            // onlineUserService.removeUser(userId);
+        }
+    }
+
+    @Override
+    public void handleTransportError(WebSocketSession session, Throwable exception) throws Exception {
+        System.err.println("Lobby WebSocket transport error for user " + session.getAttributes().get("userId") + ": " + exception.getMessage());
+        // 发生传输错误时，也调用关闭连接的清理逻辑
+        afterConnectionClosed(session, CloseStatus.SERVER_ERROR);
     }
 }

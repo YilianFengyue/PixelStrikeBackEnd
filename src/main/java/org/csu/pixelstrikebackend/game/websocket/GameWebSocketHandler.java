@@ -1,4 +1,3 @@
-// 文件路径: src/main/java/org/csu/pixelstrikebackend/game/websocket/GameWebSocketHandler.java
 package org.csu.pixelstrikebackend.game.websocket;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -6,14 +5,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.csu.pixelstrikebackend.game.service.GameRoomService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import org.springframework.web.reactive.socket.CloseStatus;
-import org.springframework.web.reactive.socket.WebSocketHandler;
-import org.springframework.web.reactive.socket.WebSocketMessage;
-import org.springframework.web.reactive.socket.WebSocketSession;
-import reactor.core.publisher.Mono;
+import org.springframework.web.socket.CloseStatus;
+import org.springframework.web.socket.TextMessage;
+import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.handler.TextWebSocketHandler;
+import org.springframework.web.util.UriComponentsBuilder;
+
+import java.util.Map;
 
 @Component
-public class GameWebSocketHandler implements WebSocketHandler {
+public class GameWebSocketHandler extends TextWebSocketHandler {
 
     @Autowired
     private GameRoomService roomService;
@@ -21,54 +22,65 @@ public class GameWebSocketHandler implements WebSocketHandler {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Override
-    public Mono<Void> handle(WebSocketSession session) {
+    public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+        System.out.println("Game WebSocket OPEN: " + session.getId());
+
+        // 从拦截器填充的 attributes 中获取 userId
         Integer userId = (Integer) session.getAttributes().get("userId");
-        if (userId == null) {
-            return session.close(CloseStatus.POLICY_VIOLATION.withReason("Invalid Token or Missing userId"));
+
+        // 从URI中获取 gameId
+        String gameIdStr = UriComponentsBuilder.fromUri(session.getUri())
+                .build()
+                .getQueryParams()
+                .getFirst("gameId");
+
+        if (userId == null || gameIdStr == null) {
+            session.close(CloseStatus.POLICY_VIOLATION.withReason("Missing userId or gameId"));
+            return;
         }
 
-        // 1. 将连接建立的操作链接到主处理流的开始
-        Mono<Void> setupFlow = Mono.fromRunnable(() -> roomService.addSession(session))
-                .then(roomService.handleHello(session));
+        Long gameId = Long.parseLong(gameIdStr);
+        session.getAttributes().put("gameId", gameId); // 将 gameId 也存入 session
 
-        // 2. 创建一个处理所有入站消息的流
-        Mono<Void> inputHandlingFlow = session.receive()
-                .map(WebSocketMessage::getPayloadAsText)
-                .flatMap(payload -> handlePayload(session, payload)) // 将每个 payload 交给 handlePayload 处理
-                .then();
-
-        // 3. 将设置流和消息处理流合并，并在最终完成后执行清理
-        return Mono.when(setupFlow, inputHandlingFlow)
-                .doFinally(signalType -> {
-                    // 使用 thenReturn().subscribe() 确保清理操作在流终止时执行
-                    roomService.handleLeave(session).then(Mono.fromRunnable(() -> {
-                        roomService.removeSession(session);
-                        System.out.println("Game WebSocket connection closed for session: " + session.getId() + " with signal: " + signalType);
-                    })).subscribe();
-                });
+        // 连接建立后，立即处理玩家加入
+        roomService.addSession(session);
+        roomService.handleJoin(session);
     }
 
-    // handlePayload 现在返回 Mono<Void> 以便链接到主处理流中
-    private Mono<Void> handlePayload(WebSocketSession session, String payload) {
+    @Override
+    protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
         try {
+            String payload = message.getPayload();
             JsonNode root = mapper.readTree(payload);
-            final String type = root.path("type").asText("");
+            String type = root.path("type").asText("");
 
-            // 根据消息类型，返回对应的响应式操作
             switch (type) {
-                case "join":
-                    return roomService.handleJoin(session, root);
                 case "state":
-                    return roomService.handleState(session, root);
+                    roomService.handleState(session, root);
+                    break;
                 case "shot":
-                    return roomService.handleShot(session, root);
+                    roomService.handleShot(session, root);
+                    break;
                 default:
-                    System.out.println("IGNORED msg type=" + type + " raw=" + payload);
-                    return Mono.empty(); // 对于未知类型，返回一个完成的 Mono
+                    System.out.println("IGNORED unknown msg type=" + type + " raw=" + payload);
             }
         } catch (Exception e) {
-            System.err.println("Error parsing WebSocket message payload: " + e.getMessage());
-            return Mono.error(e); // 如果解析失败，将异常传递给流
+            System.err.println("Error processing game message: " + e.getMessage());
+            // 你可以选择在这里关闭连接或忽略错误
         }
+    }
+
+    @Override
+    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
+        System.out.println("Game WebSocket CLOSE: " + session.getId() + " with status: " + status);
+        roomService.handleLeave(session);
+        roomService.removeSession(session);
+    }
+
+    @Override
+    public void handleTransportError(WebSocketSession session, Throwable exception) throws Exception {
+        System.err.println("Game WebSocket Transport ERROR for session " + session.getId() + ": " + exception.getMessage());
+        // 错误发生时也确保清理资源
+        afterConnectionClosed(session, CloseStatus.SERVER_ERROR);
     }
 }

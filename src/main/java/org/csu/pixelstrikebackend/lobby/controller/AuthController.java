@@ -1,5 +1,6 @@
 package org.csu.pixelstrikebackend.lobby.controller;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.csu.pixelstrikebackend.lobby.common.CommonResponse;
 import org.csu.pixelstrikebackend.lobby.dto.LoginRequest;
@@ -12,7 +13,6 @@ import org.csu.pixelstrikebackend.lobby.service.AuthService;
 import org.csu.pixelstrikebackend.lobby.service.OnlineUserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ServerWebExchange;
 
 @RestController
 @RequestMapping("/auth")
@@ -46,14 +46,14 @@ public class AuthController {
      * 用户登出接口（需要认证）
      */
     @PostMapping("/logout")
-    public CommonResponse<?> logout(ServerWebExchange exchange) {
-        Integer userId = exchange.getAttribute("userId");
+    public CommonResponse<?> logout(HttpServletRequest exchange) {
+        Integer userId = (Integer) exchange.getAttribute("userId");
         return authService.logout(userId);
     }
 
     @GetMapping("/me")
-    public CommonResponse<UserProfile> getMyProfile(ServerWebExchange exchange) {
-        Integer userId = exchange.getAttribute("userId");
+    public CommonResponse<UserProfile> getMyProfile(HttpServletRequest exchange) {
+        Integer userId = (Integer) exchange.getAttribute("userId");
         UserProfile userProfile = userProfileMapper.selectById(userId);
         if (userProfile == null) {
             return CommonResponse.createForError("用户不存在");

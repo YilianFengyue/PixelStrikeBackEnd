@@ -1,5 +1,6 @@
 package org.csu.pixelstrikebackend.lobby.controller;
-import org.springframework.web.server.ServerWebExchange; // 导入这个类
+
+import jakarta.servlet.http.HttpServletRequest;
 import org.csu.pixelstrikebackend.lobby.common.CommonResponse;
 import org.csu.pixelstrikebackend.lobby.service.MatchHistoryService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,7 +17,7 @@ public class MatchHistoryController {
     private MatchHistoryService matchHistoryService;
 
     @GetMapping
-    public CommonResponse<?> getMatchHistory(ServerWebExchange request) {
+    public CommonResponse<?> getMatchHistory(HttpServletRequest request) {
         Integer userId = (Integer) request.getAttribute("userId");
         return matchHistoryService.getMatchHistory(userId);
     }
