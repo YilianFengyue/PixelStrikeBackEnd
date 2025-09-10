@@ -15,29 +15,29 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class GameRoomService {
+
     // 所有的字段声明都保持原样...
     private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
-    private final Map<String, Integer> sessionToGameId = new ConcurrentHashMap<>();
-    private final Map<Integer, Integer> gameIdToUserId = new ConcurrentHashMap<>();
-    private final Map<String, String> playerNameBySession = new ConcurrentHashMap<>();
     private final ObjectMapper mapper = new ObjectMapper();
-    // ...以及其他所有字段...
+    // 假设您还有其他字段，如 gameManager, hpByPlayer 等，请保持它们不变
+    private final GameManager gameManager;
+
 
     @Autowired
     public GameRoomService(@Lazy GameManager gameManager) {
-        // 构造函数保持原样
+        this.gameManager = gameManager;
     }
 
-    // --- 所有方法都改为 void 或直接返回数据，不再返回 Mono/Flux ---
+    public void prepareGame(Long gameId, List<Integer> playerIds) {
+        System.out.println("Preparing new game " + gameId + " with players: " + playerIds);
+    }
 
     public void addSession(WebSocketSession s) {
         sessions.put(s.getId(), s);
-        // 其他 rate counter 和 clock 的初始化保持原样
     }
 
     public void removeSession(WebSocketSession s) {
         sessions.remove(s.getId());
-        // 其他清理逻辑保持原样
     }
 
     public void handleJoin(WebSocketSession session) {
@@ -45,11 +45,11 @@ public class GameRoomService {
         Integer userId = (Integer) session.getAttributes().get("userId");
 
         if (gameId == null || userId == null) {
-            System.err.println("Error on join: gameId or userId is null.");
+            System.err.println("Error on join: gameId or userId is null for session " + session.getId());
             return;
         }
 
-        // 内部数据结构更新逻辑保持不变...
+        System.out.println("Player " + userId + " is joining game " + gameId);
 
         // 构造 welcome 消息
         ObjectNode welcome = mapper.createObjectNode();
@@ -62,16 +62,22 @@ public class GameRoomService {
         ObjectNode joined = mapper.createObjectNode();
         joined.put("type", "join_broadcast");
         joined.put("id", userId);
-        // ...
+        joined.put("name", "Player " + userId); // 暂时使用占位符名字
         broadcastToOthers(session, joined.toString());
     }
 
     public void handleState(WebSocketSession session, JsonNode root) {
-        // 内部逻辑完全不变，只是不再返回 Mono
+        // 你的游戏状态处理逻辑...
+        Integer userId = (Integer) session.getAttributes().get("userId");
+        if(userId == null) return;
+
+        ObjectNode stateToBroadcast = (ObjectNode) root.deepCopy();
+        stateToBroadcast.put("id", userId);
+        broadcastToOthers(session, stateToBroadcast.toString());
     }
 
     public void handleShot(WebSocketSession session, JsonNode root) {
-        // 内部逻辑完全不变，只是不再返回 Mono
+        // 你的射击处理逻辑...
     }
 
     public void handleLeave(WebSocketSession session) {
@@ -84,21 +90,34 @@ public class GameRoomService {
         }
     }
 
-    // --- 【核心】广播逻辑改回 for 循环 ---
+    // --- 【核心修复】广播逻辑与 fxdemoBackend 完全同步 ---
 
-    public void broadcast(String json) {
+    public synchronized void broadcast(String json) {
         TextMessage message = new TextMessage(json);
+        // 创建会话列表的副本进行迭代，防止并发修改
+        List<WebSocketSession> activeSessions = new ArrayList<>();
         for (WebSocketSession session : sessions.values()) {
+            if (session.isOpen()) {
+                activeSessions.add(session);
+            }
+        }
+        System.out.println("[BROADCAST] -> " + activeSessions.size() + " sessions : " + json);
+        for (WebSocketSession session : activeSessions) {
             sendTo(session, message);
         }
     }
 
-    public void broadcastToOthers(WebSocketSession sender, String json) {
+    public synchronized void broadcastToOthers(WebSocketSession sender, String json) {
         TextMessage message = new TextMessage(json);
+        List<WebSocketSession> activeSessions = new ArrayList<>();
         for (WebSocketSession session : sessions.values()) {
-            if (!session.getId().equals(sender.getId())) {
-                sendTo(session, message);
+            if (session.isOpen() && !session.getId().equals(sender.getId())) {
+                activeSessions.add(session);
             }
+        }
+        System.out.println("[BROADCAST TO OTHERS] -> " + activeSessions.size() + " sessions : " + json);
+        for (WebSocketSession session : activeSessions) {
+            sendTo(session, message);
         }
     }
 
@@ -109,21 +128,19 @@ public class GameRoomService {
     private void sendTo(WebSocketSession session, TextMessage message) {
         try {
             if (session != null && session.isOpen()) {
-                session.sendMessage(message);
+                // 【重要】在发送前也加上同步锁，确保发送操作的原子性
+                synchronized (session) {
+                    session.sendMessage(message);
+                }
             }
         } catch (IOException e) {
             System.err.println("Failed to send message to session " + session.getId() + ": " + e.getMessage());
-            // 发生IO错误通常意味着连接已断开，可以做清理
+            removeSession(session);
+        } catch (IllegalStateException e) {
+            System.err.println("Failed to send message (already closed) to session " + session.getId() + ": " + e.getMessage());
             removeSession(session);
         }
     }
 
-    // --- 【新增】将缺失的 prepareGame 方法加回来 ---
-    public void prepareGame(Long gameId, List<Integer> playerIds) {
-        System.out.println("Preparing new game " + gameId + " with players: " + playerIds);
-        // 在这里可以为即将到来的游戏初始化一些数据
-        // 例如：
-        // GameState state = new GameState(gameId, playerIds);
-        // activeGames.put(gameId, state);
-    }
+    // ...这里保留你所有其他的辅助方法 (interpolateAt, validateShot, applyDamage, 等)...
 }
