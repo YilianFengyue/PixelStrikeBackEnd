@@ -3,6 +3,9 @@ package org.csu.pixelstrikebackend.game.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
+import org.csu.pixelstrikebackend.config.GameConfig;
 import org.csu.pixelstrikebackend.game.geom.HitMath; // 确保你项目中存在这个类
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
@@ -13,12 +16,17 @@ import org.springframework.web.socket.WebSocketSession;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class GameRoomService {
 
     private final ObjectMapper mapper = new ObjectMapper();
     private final GameManager gameManager;
+    @Autowired
+    private GameConfig gameConfig;
 
     // --- 从 DemoGameRoomService 完整移植的核心游戏逻辑字段 ---
 
@@ -28,6 +36,9 @@ public class GameRoomService {
     // 节流控制
     private final Map<String, RateCounter> anyCounterBySession = new ConcurrentHashMap<>();
     private final Map<String, RateCounter> stateCounterBySession = new ConcurrentHashMap<>();
+
+    private final Map<Integer, Long> deathTimestamps = new ConcurrentHashMap<>(); // 存储玩家死亡时间戳
+    private ScheduledExecutorService gameLoopExecutor;
 
     // 快照缓存 (用于服务器回滚验证)
     private static final long SNAPSHOT_KEEP_MS = 2000;
@@ -55,6 +66,46 @@ public class GameRoomService {
     @Autowired
     public GameRoomService(@Lazy GameManager gameManager) {
         this.gameManager = gameManager;
+    }
+
+    // --- 新增方法：初始化游戏循环 ---
+    @PostConstruct
+    public void init() {
+        gameLoopExecutor = Executors.newSingleThreadScheduledExecutor();
+        gameLoopExecutor.scheduleAtFixedRate(this::gameTick, 0, gameConfig.getEngine().getTickRateMs(), TimeUnit.MILLISECONDS);
+    }
+
+    // --- 新增方法：销毁游戏循环 ---
+    @PreDestroy
+    public void shutdown() {
+        if (gameLoopExecutor != null) {
+            gameLoopExecutor.shutdown();
+        }
+    }
+
+    private void respawnPlayer(Integer userId) {
+        System.out.println("Respawning player " + userId);
+        // 1. 重置服务器上的权威状态
+        hpByPlayer.put(userId, MAX_HP);
+        deadSet.remove(userId);
+        lastSeqByPlayer.remove(userId); // 清除旧的序列号以接受新状态
+
+        // 2. (可选) 计算一个新的、安全的出生点
+        // 这里为了简化，我们暂时使用一个固定的出生点
+        double spawnX = 500;
+        double spawnY = 3300 - 211 - 128;
+
+        // 3. 构造 respawn 消息
+        ObjectNode respawnMsg = mapper.createObjectNode();
+        respawnMsg.put("type", "respawn");
+        respawnMsg.put("id", userId);
+        respawnMsg.put("x", spawnX);
+        respawnMsg.put("y", spawnY);
+        respawnMsg.put("hp", MAX_HP);
+        respawnMsg.put("serverTime", System.currentTimeMillis());
+
+        // 4. 向所有客户端广播这条消息
+        broadcast(respawnMsg.toString());
     }
 
     public void prepareGame(Long gameId, List<Integer> playerIds) {
@@ -319,9 +370,37 @@ public class GameRoomService {
         hp = Math.max(0, hp - amount);
         hpByPlayer.put(victimId, hp);
         boolean dead = (hp == 0);
-        if (dead) deadSet.add(victimId);
+        if (dead) {
+            deadSet.add(victimId);
+            deathTimestamps.put(victimId, System.currentTimeMillis()); // ★ 记录死亡时间
+            System.out.println("Player " + victimId + " died. Respawn timer started.");
+        }
         return new DamageResult(hp, dead);
     }
+
+    private void gameTick() {
+        try {
+            long now = System.currentTimeMillis();
+            long respawnDelay = gameConfig.getPlayer().getRespawnTimeMs();
+
+            // 遍历所有死亡时间戳
+            for (Map.Entry<Integer, Long> entry : deathTimestamps.entrySet()) {
+                Integer deadPlayerId = entry.getKey();
+                Long deathTime = entry.getValue();
+
+                if (now - deathTime >= respawnDelay) {
+                    // 时间到了，执行复活
+                    respawnPlayer(deadPlayerId);
+                    // 从计时器中移除，防止重复复活
+                    deathTimestamps.remove(deadPlayerId);
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Error in game tick: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
 
     public Optional<HitInfo> validateShot(int shooterId, long shotSrvTS, double ox, double oy, double dx, double dy, double range) {
         dx = clampDir(dx);
