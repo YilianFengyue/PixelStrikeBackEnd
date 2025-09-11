@@ -6,14 +6,13 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.csu.pixelstrikebackend.config.GameConfig;
+import org.csu.pixelstrikebackend.game.geom.HitMath;
+import org.csu.pixelstrikebackend.game.model.ServerProjectile;
 import org.csu.pixelstrikebackend.lobby.entity.MatchParticipant;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -26,6 +25,7 @@ public class GameLoopService {
     @Autowired private PlayerStateManager playerStateManager;
     @Autowired private GameSessionManager gameSessionManager;
     @Autowired private GameManager gameManager;
+    @Autowired private ProjectileManager projectileManager;
     
     private ScheduledExecutorService gameLoopExecutor;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -47,18 +47,84 @@ public class GameLoopService {
     private void gameTick() {
         try {
             long now = System.currentTimeMillis();
-
-            // --- 处理复活逻辑 (保持不变) ---
+            double deltaTime = gameConfig.getEngine().getTickRateMs() / 1000.0; // 转换为秒
             handleRespawns(now);
 
-            // --- 新增：处理游戏结束逻辑 ---
+            // 更新所有子弹的位置并检查碰撞
+            updateProjectiles(deltaTime);
             checkGameOverConditions(now);
-
         } catch (Exception e) {
             System.err.println("Error in game tick: " + e.getMessage());
             e.printStackTrace();
         }
     }
+
+    // 子弹更新与碰撞检测逻辑
+    private void updateProjectiles(double deltaTime) {
+        List<ServerProjectile> projectiles = projectileManager.getProjectiles();
+        if (projectiles.isEmpty()) return;
+        // 命中判定的常量
+        final double HB_OFF_X = 80.0, HB_OFF_Y = 20.0, HB_W = 86.0, HB_H = 160.0;
+        for (ServerProjectile proj : projectiles) {
+            double oldX = proj.getX();
+            double oldY = proj.getY();
+            proj.update(deltaTime); // 更新子弹位置
+            boolean hit = false;
+            // 检查与所有非死亡、非射手自己的玩家的碰撞
+            for (Integer victimId : playerStateManager.getHpByPlayer().keySet()) {
+                if (victimId.equals(proj.getShooterId()) || playerStateManager.isDead(victimId)) {
+                    continue;
+                }
+                // 获取玩家在当前时刻的精确位置
+                Optional<GameRoomService.StateSnapshot> sOpt = playerStateManager.interpolateAt(victimId, System.currentTimeMillis());
+                if (sOpt.isEmpty()) continue;
+                GameRoomService.StateSnapshot victimState = sOpt.get();
+                // 简单的AABB碰撞检测
+                double minX = victimState.x + HB_OFF_X;
+                double minY = victimState.y + HB_OFF_Y;
+                double maxX = minX + HB_W;
+                double maxY = minY + HB_H;
+                // 检查子弹在这一帧的移动轨迹是否穿过了玩家的包围盒
+                double tEnter = HitMath.raySegmentVsAABB(oldX, oldY, proj.getX() - oldX, proj.getY() - oldY, minX, minY, maxX, maxY);
+                if (tEnter <= 1.0) { // tEnter <= 1.0 意味着线段与包围盒相交
+                    handleHit(proj, victimId, 10); // 假设伤害为10
+                    hit = true;
+                    break; // 一颗子弹只命中一个目标
+                }
+            }
+            // 如果子弹命中或飞出范围，则移除
+            if (hit || proj.isOutOfRange(proj.getX(), proj.getY())) { // 这里简化了范围检查，可以做得更精确
+                projectileManager.removeProjectile(proj);
+            }
+        }
+    }
+
+    // ★ 新增：处理命中事件的方法
+    private void handleHit(ServerProjectile projectile, int victimId, int damage) {
+        int shooterId = projectile.getShooterId();
+
+        GameRoomService.DamageResult res = playerStateManager.applyDamage(shooterId, victimId, damage);
+        if (res.dead) {
+            playerStateManager.recordKill(shooterId, victimId);
+        }
+
+        double sign = projectile.getVelocityX() >= 0 ? 1.0 : -1.0;
+        double kx = sign * 220.0; // 击退效果
+        double ky = 0.0;
+
+        ObjectNode dmg = mapper.createObjectNode();
+        dmg.put("type", "damage");
+        dmg.put("attacker", shooterId);
+        dmg.put("victim", victimId);
+        dmg.put("damage", damage);
+        dmg.put("hp", res.hp);
+        dmg.put("dead", res.dead);
+        dmg.put("kx", kx);
+        dmg.put("ky", ky);
+        dmg.put("srvTS", System.currentTimeMillis());
+        gameSessionManager.broadcast(dmg.toString());
+    }
+
 
     private void handleRespawns(long now) {
         long respawnDelay = gameConfig.getPlayer().getRespawnTimeMs();

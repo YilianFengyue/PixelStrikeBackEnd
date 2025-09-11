@@ -3,6 +3,7 @@ package org.csu.pixelstrikebackend.game.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.csu.pixelstrikebackend.game.model.ServerProjectile;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.WebSocketSession;
@@ -21,10 +22,12 @@ public class GameRoomService {
     @Autowired private PlayerStateManager playerStateManager;
     @Autowired private HitValidationService hitValidationService;
     @Autowired private ClientStateService clientStateService;
+    @Autowired private ProjectileManager projectileManager;
 
     // 命中判定常量 (可以考虑移到GameConfig)
     private static final double KB_X = 220.0;
     private static final double KB_Y = 0.0;
+    private static final double BULLET_SPEED = 1500.0;
 
     public void prepareGame(Long gameId, List<Integer> playerIds) {
         System.out.println("Preparing new game " + gameId + " with players: " + playerIds);
@@ -95,53 +98,26 @@ public class GameRoomService {
         Integer shooterId = (Integer) session.getAttributes().get("userId");
         if (shooterId == null) return;
 
-        long now = System.currentTimeMillis();
-        long cliTS = root.path("ts").asLong(0);
-        long shotSrvTS = clientStateService.toServerTime(session, cliTS);
-
         double ox = root.path("ox").asDouble(), oy = root.path("oy").asDouble();
         double dx = root.path("dx").asDouble(), dy = root.path("dy").asDouble();
         double range = root.path("range").asDouble(0);
-        int damage = root.path("damage").asInt(0);
 
+        // 不再进行射线检测，而是创建并注册一个权威子弹
+        ServerProjectile serverProjectile = new ServerProjectile(shooterId, ox, oy, dx, dy, BULLET_SPEED, range);
+        projectileManager.addProjectile(serverProjectile);
+
+        // 广播 shot 消息，让所有客户端生成纯视觉的子弹特效
+        // 如果想完全依赖服务器，也可以注释掉下面这段广播
+        long now = System.currentTimeMillis();
         ObjectNode shot = mapper.createObjectNode();
         shot.put("type", "shot");
         shot.put("attacker", shooterId);
-        shot.put("by", shooterId);
         shot.put("ox", ox); shot.put("oy", oy);
         shot.put("dx", dx); shot.put("dy", dy);
         shot.put("range", range);
         shot.put("srvTS", now);
         sessionManager.broadcast(shot.toString());
 
-        Optional<HitInfo> hitOpt = hitValidationService.validateShot(shooterId, shotSrvTS, ox, oy, dx, dy, range);
-        if (hitOpt.isEmpty()) return;
-
-        var hit = hitOpt.get();
-        var res = playerStateManager.applyDamage(shooterId, hit.victimId, damage);
-
-        if (res.dead) {
-            playerStateManager.recordKill(shooterId, hit.victimId);
-            System.out.println("Player " + shooterId + " killed player " + hit.victimId);
-        }
-
-        double sign = (dx >= 0) ? 1.0 : -1.0;
-        double kx = sign * KB_X;
-        double ky = KB_Y;
-
-        ObjectNode dmg = mapper.createObjectNode();
-        dmg.put("type", "damage");
-        dmg.put("attacker", shooterId);
-        dmg.put("by", shooterId);
-        dmg.put("victim", hit.victimId);
-        dmg.put("damage", damage);
-        dmg.put("hp", res.hp);
-        dmg.put("dead", res.dead);
-        dmg.put("kx", kx);
-        dmg.put("ky", ky);
-        dmg.put("t", hit.t);
-        dmg.put("srvTS", System.currentTimeMillis());
-        sessionManager.broadcast(dmg.toString());
     }
 
     public void handleLeave(WebSocketSession session) {
