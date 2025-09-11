@@ -199,22 +199,23 @@ public class MatchmakingServiceImpl implements MatchmakingService {
         System.out.println("大厅模块正在处理战绩，游戏ID: " + gameId);
 
         // 1. 批量插入参与者战绩并更新玩家总战绩
-        for (MatchParticipant result : results) {
-            matchParticipantMapper.insert(result);
+        for (MatchParticipant participant : results) {
+            matchParticipantMapper.insert(participant);
 
             // 游戏结束，移除玩家会话
-            playerSessionService.removePlayerFromGame(result.getUserId());
+            playerSessionService.removePlayerFromGame(participant.getUserId());
 
             // 更新UserProfile
-            UserProfile profile = userProfileMapper.selectById(result.getUserId());
+            UserProfile profile = userProfileMapper.selectById(participant.getUserId());
             if (profile != null) {
                 profile.setTotalMatches(profile.getTotalMatches() + 1);
                 // 如果排名第一，则胜利场次+1
-                if (result.getRanking() != null && result.getRanking() == 1) {
+                if (participant.getRanking() != null && participant.getRanking() == 1) {
                     profile.setWins(profile.getWins() + 1);
                 }
                 userProfileMapper.updateById(profile);
             }
+            onlineUserService.updateUserStatus(participant.getUserId(), UserStatus.ONLINE);
         }
 
         // 2. 更新对局表的结束时间

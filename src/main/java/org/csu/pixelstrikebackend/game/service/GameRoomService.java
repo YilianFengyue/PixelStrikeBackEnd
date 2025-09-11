@@ -120,6 +120,11 @@ public class GameRoomService {
         var hit = hitOpt.get();
         var res = playerStateManager.applyDamage(shooterId, hit.victimId, damage);
 
+        if (res.dead) {
+            playerStateManager.recordKill(shooterId, hit.victimId);
+            System.out.println("Player " + shooterId + " killed player " + hit.victimId);
+        }
+
         double sign = (dx >= 0) ? 1.0 : -1.0;
         double kx = sign * KB_X;
         double ky = KB_Y;

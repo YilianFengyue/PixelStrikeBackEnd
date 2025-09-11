@@ -20,6 +20,8 @@ public class PlayerStateManager {
     private static final long SNAPSHOT_KEEP_MS = 2000;
     private final Map<Integer, Deque<GameRoomService.StateSnapshot>> snapshotsByPlayer = new ConcurrentHashMap<>();
     private final Map<Integer, Long> lastSeqByPlayer = new ConcurrentHashMap<>();
+    private final Map<Integer, Integer> killsByPlayer = new ConcurrentHashMap<>();
+    private final Map<Integer, Integer> deathsByPlayer = new ConcurrentHashMap<>();
 
     public void initializePlayer(Integer userId) {
         hpByPlayer.put(userId, MAX_HP);
@@ -27,6 +29,8 @@ public class PlayerStateManager {
         snapshotsByPlayer.remove(userId);
         lastSeqByPlayer.remove(userId);
         deathTimestamps.remove(userId);
+        killsByPlayer.put(userId, 0);
+        deathsByPlayer.put(userId, 0);
     }
 
     public GameRoomService.DamageResult applyDamage(int byId, int victimId, int amount) {
@@ -61,6 +65,21 @@ public class PlayerStateManager {
             while (!buf.isEmpty() && buf.peekFirst().srvTS < min) buf.removeFirst();
             if (buf.size() > 600) buf.removeFirst();
         }
+    }
+
+    public void recordKill(Integer killerId, Integer victimId) {
+        if (killerId != null) {
+            killsByPlayer.compute(killerId, (id, kills) -> (kills == null ? 0 : kills) + 1);
+        }
+        if (victimId != null) {
+            deathsByPlayer.compute(victimId, (id, deaths) -> (deaths == null ? 0 : deaths) + 1);
+        }
+    }
+    public Map<String, Integer> getStats(Integer userId) {
+        return Map.of(
+                "kills", killsByPlayer.getOrDefault(userId, 0),
+                "deaths", deathsByPlayer.getOrDefault(userId, 0)
+        );
     }
 
     public Optional<GameRoomService.StateSnapshot> interpolateAt(int playerId, long targetSrvTS) {
