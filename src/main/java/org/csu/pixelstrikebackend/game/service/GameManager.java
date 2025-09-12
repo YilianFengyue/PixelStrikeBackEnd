@@ -3,7 +3,9 @@ package org.csu.pixelstrikebackend.game.service;
 import lombok.Getter;
 import org.csu.pixelstrikebackend.game.GameLobbyBridge;
 import org.csu.pixelstrikebackend.lobby.entity.MatchParticipant;
+import org.csu.pixelstrikebackend.lobby.enums.UserStatus;
 import org.csu.pixelstrikebackend.lobby.service.MatchService;
+import org.csu.pixelstrikebackend.lobby.service.OnlineUserService;
 import org.csu.pixelstrikebackend.lobby.service.PlayerSessionService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
@@ -19,6 +21,8 @@ public class GameManager implements GameLobbyBridge {
     private final GameRoomService gameRoomService;
     private final MatchService matchService;
     @Autowired private PlayerSessionService playerSessionService;
+    @Autowired private OnlineUserService onlineUserService;
+
     @Getter
     private final Map<Long, ActiveGame> activeGames = new ConcurrentHashMap<>();
 
@@ -35,16 +39,23 @@ public class GameManager implements GameLobbyBridge {
         gameRoomService.prepareGame(gameId, playerIds);
     }
 
+    /**
+     * 这是游戏结束时唯一的权威状态清理点。
+     */
     @Override
     public void onGameConcluded(Long gameId, List<MatchParticipant> results) {
-        ActiveGame finishedGame = activeGames.get(gameId);
+        ActiveGame finishedGame = activeGames.remove(gameId);
         if (finishedGame != null) {
+            System.out.println("Game " + gameId + " concluded. Authority cleanup started for players: " + finishedGame.playerIds);
             for (Integer playerId : finishedGame.playerIds) {
+                // 1. 清理游戏会话
                 playerSessionService.removePlayerFromGame(playerId);
-                System.out.println("Cleaned up game session for player " + playerId + " from game " + gameId);
+                // 2. ★★★ 立即将玩家状态重置为 ONLINE ★★★
+                onlineUserService.updateUserStatus(playerId, UserStatus.ONLINE);
             }
         }
-        activeGames.remove(gameId);
+
+        // 3. 将战绩处理任务交给 MatchService（它只负责写数据库）
         matchService.processMatchResults(gameId, results);
     }
 

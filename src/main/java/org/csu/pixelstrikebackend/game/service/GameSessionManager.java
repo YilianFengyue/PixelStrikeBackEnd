@@ -37,7 +37,7 @@ public class GameSessionManager {
     public void broadcastToOthers(WebSocketSession sender, String json) {
         TextMessage message = new TextMessage(json);
         List<WebSocketSession> currentSessions = new ArrayList<>(sessions.values());
-        System.out.println("[BROADCAST TO OTHERS] -> " + (currentSessions.size() -1) + " sessions : " + json);
+//        System.out.println("[BROADCAST TO OTHERS] -> " + (currentSessions.size() -1) + " sessions : " + json);
         for (WebSocketSession session : currentSessions) {
             if (session.isOpen() && !session.getId().equals(sender.getId())) {
                 sendTo(session, message);

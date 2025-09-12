@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.csu.pixelstrikebackend.game.model.ServerProjectile;
+import org.csu.pixelstrikebackend.lobby.enums.UserStatus;
+import org.csu.pixelstrikebackend.lobby.service.OnlineUserService;
+import org.csu.pixelstrikebackend.lobby.service.PlayerSessionService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.WebSocketSession;
@@ -23,6 +26,8 @@ public class GameRoomService {
     @Autowired private HitValidationService hitValidationService;
     @Autowired private ClientStateService clientStateService;
     @Autowired private ProjectileManager projectileManager;
+    @Autowired private OnlineUserService onlineUserService;
+    @Autowired private PlayerSessionService playerSessionService;
 
     // 命中判定常量 (可以考虑移到GameConfig)
     private static final double KB_X = 220.0;
@@ -42,6 +47,15 @@ public class GameRoomService {
     }
 
     public void removeSession(WebSocketSession s) {
+        Integer userId = (Integer) s.getAttributes().get("userId");
+        if (userId != null) {
+            // 这个逻辑现在主要处理玩家在游戏中途意外断线的情况
+            if(playerSessionService.isPlayerInGame(userId)){
+                playerSessionService.removePlayerFromGame(userId);
+                onlineUserService.updateUserStatus(userId, UserStatus.ONLINE);
+                System.out.println("Cleaned up session for unexpectedly disconnected user: " + userId);
+            }
+        }
         sessionManager.removeSession(s);
         clientStateService.unregisterSession(s);
     }
@@ -127,6 +141,7 @@ public class GameRoomService {
             leave.put("type", "leave");
             leave.put("id", userId);
             sessionManager.broadcastToOthers(session, leave.toString());
+            // 点击“返回大厅”按钮会触发此方法，最终会调用 removeSession，所以这里无需重复操作
         }
     }
 
