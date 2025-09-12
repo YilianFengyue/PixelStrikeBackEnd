@@ -1,11 +1,8 @@
 package org.csu.pixelstrikebackend.lobby.service;
 
-import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
-import reactor.core.publisher.Mono;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -29,30 +26,27 @@ public class FileStorageService {
         }
     }
 
-    public Mono<String> storeFile(FilePart file) { // 返回类型修改为 Mono<String>
-        String originalFileName = StringUtils.cleanPath(file.filename());
+    public String storeFile(MultipartFile file) throws IOException {
+        String originalFileName = StringUtils.cleanPath(file.getOriginalFilename());
 
-        try {
-            if(originalFileName.contains("..")) {
-                return Mono.error(new RuntimeException("Sorry! Filename contains invalid path sequence " + originalFileName));
-            }
-
-            String fileExtension = "";
-            try {
-                fileExtension = originalFileName.substring(originalFileName.lastIndexOf("."));
-            } catch (Exception e) {
-                // ignore
-            }
-            String newFileName = UUID.randomUUID().toString() + fileExtension;
-
-            Path targetLocation = this.fileStorageLocation.resolve(newFileName);
-
-            // transferTo 本身返回一个 Mono<Void>，表示操作完成的信号
-            // 我们用 then(Mono.just(newFileName)) 来在操作成功后返回新的文件名
-            return file.transferTo(targetLocation).then(Mono.just(newFileName));
-
-        } catch (Exception ex) {
-            return Mono.error(new RuntimeException("Could not store file " + originalFileName + ". Please try again!", ex));
+        if(originalFileName.contains("..")) {
+            throw new IOException("Sorry! Filename contains invalid path sequence " + originalFileName);
         }
+
+        String fileExtension = "";
+        try {
+            fileExtension = originalFileName.substring(originalFileName.lastIndexOf("."));
+        } catch (Exception e) {
+            // ignore
+        }
+        String newFileName = UUID.randomUUID().toString() + fileExtension;
+        Path targetLocation = this.fileStorageLocation.resolve(newFileName);
+
+        // 使用 try-with-resources 确保输入流被关闭
+        try (InputStream inputStream = file.getInputStream()) {
+            Files.copy(inputStream, targetLocation, StandardCopyOption.REPLACE_EXISTING);
+        }
+
+        return newFileName;
     }
 }

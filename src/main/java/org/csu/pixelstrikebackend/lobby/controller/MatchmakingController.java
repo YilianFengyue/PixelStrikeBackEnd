@@ -1,6 +1,7 @@
 package org.csu.pixelstrikebackend.lobby.controller;
 
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
 import org.csu.pixelstrikebackend.lobby.common.CommonResponse;
 import org.csu.pixelstrikebackend.lobby.dto.StartMatchmakingRequest;
 import org.csu.pixelstrikebackend.lobby.service.MatchmakingService;
@@ -9,7 +10,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ServerWebExchange;
 
 @RestController
 @RequestMapping("/matchmaking")
@@ -22,8 +22,8 @@ public class MatchmakingController {
      * 开始匹配
      */
     @PostMapping("/start")
-    public CommonResponse<?> startMatchmaking(@RequestBody(required = false) StartMatchmakingRequest matchmakingRequest, ServerWebExchange exchange) {
-        Integer userId = exchange.getAttribute("userId");
+    public CommonResponse<?> startMatchmaking(@RequestBody(required = false) StartMatchmakingRequest matchmakingRequest, HttpServletRequest exchange) {
+        Integer userId = (Integer) exchange.getAttribute("userId");
 
         // **新增：设置默认值**
         int mapIdToUse = 4; // 默认地图ID为1
@@ -50,8 +50,8 @@ public class MatchmakingController {
      * 取消匹配
      */
     @PostMapping("/cancel")
-    public CommonResponse<?> cancelMatchmaking(ServerWebExchange exchange) {
-        Integer userId = exchange.getAttribute("userId");
+    public CommonResponse<?> cancelMatchmaking(HttpServletRequest exchange) {
+        Integer userId = (Integer) exchange.getAttribute("userId");
         return matchmakingService.cancelMatchmaking(userId);
     }
 }

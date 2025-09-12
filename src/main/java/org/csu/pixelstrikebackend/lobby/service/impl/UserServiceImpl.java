@@ -3,7 +3,6 @@ package org.csu.pixelstrikebackend.lobby.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import org.csu.pixelstrikebackend.lobby.common.CommonResponse;
 import org.csu.pixelstrikebackend.lobby.dto.ResetPasswordRequest;
-import org.csu.pixelstrikebackend.lobby.dto.UpdateProfileRequest;
 import org.csu.pixelstrikebackend.lobby.entity.User;
 import org.csu.pixelstrikebackend.lobby.entity.UserProfile;
 import org.csu.pixelstrikebackend.lobby.mapper.UserMapper;
@@ -12,13 +11,11 @@ import org.csu.pixelstrikebackend.lobby.service.FileStorageService;
 import org.csu.pixelstrikebackend.lobby.service.OnlineUserService;
 import org.csu.pixelstrikebackend.lobby.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-// 添加这些 import
-import org.springframework.http.codec.multipart.FilePart;
-import reactor.core.publisher.Mono;
+import org.springframework.web.multipart.MultipartFile;
+
 
 import java.nio.file.Paths;
 @Service("userService")
@@ -71,27 +68,31 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    public Mono<CommonResponse<?>> updateAvatar(Integer userId, FilePart file) { // 注意返回类型
+    public CommonResponse<?> updateAvatar(Integer userId, MultipartFile file) {
         UserProfile userProfile = userProfileMapper.selectById(userId);
         if (userProfile == null) {
-            // 对于同步错误，可以直接返回一个包含错误的Mono
-            return Mono.just(CommonResponse.createForError("用户资料不存在"));
+            return CommonResponse.createForError("用户资料不存在");
         }
 
-        // 1. 调用非阻塞的 storeFile 方法，它返回一个 Mono<String>
-        return fileStorageService.storeFile(file)
-                .flatMap(fileName -> {
-                    // 2. 构建完整的、可在浏览器访问的URL
-                    String fullUrl = "http://localhost:8080/uploads/" + fileName;
+        try {
+            // 1. 调用同步的文件存储方法
+            String fileName = fileStorageService.storeFile(file);
 
-                    // 3. 将完整的URL存入数据库
-                    userProfile.setAvatarUrl(fullUrl);
-                    userProfileMapper.updateById(userProfile);
+            // 2. 构建URL
+            String fullUrl = "http://localhost:8080/uploads/" + fileName;
 
-                    // 4. 将包含完整URL的userProfile对象返回给前端
-                    return Mono.just(CommonResponse.createForSuccess("头像上传成功", userProfile));
-                });
+            // 3. 更新数据库
+            userProfile.setAvatarUrl(fullUrl);
+            userProfileMapper.updateById(userProfile);
+
+            // 4. 返回成功响应
+            return CommonResponse.createForSuccess("头像上传成功", userProfile);
+
+        } catch (Exception e) {
+            return CommonResponse.createForError("文件上传失败: " + e.getMessage());
+        }
     }
+
 
     @Override
     @Transactional

@@ -24,13 +24,21 @@ spring:
 
 mybatis-plus:
   configuration:
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
   global-config:
     db-config:
       id-type: assign_id
       logic-delete-field: deleted
       logic-not-delete-value: 0
       logic-delete-value: 1
+
+logging:
+  level:
+    # 将所有 Mapper 的日志级别设置为 WARN，这样就不会打印 普通SQL 查询了
+    org.csu.pixelstrikebackend.lobby.mapper: WARN
+
+    # 如果你想单独调试某一个Mapper，可以像下面这样单独设置
+    # org.csu.pixelstrikebackend.lobby.mapper.FriendMapper: DEBUG
 
 
 # ===============================================

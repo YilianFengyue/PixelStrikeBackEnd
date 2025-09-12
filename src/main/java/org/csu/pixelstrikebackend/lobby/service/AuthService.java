@@ -1,6 +1,7 @@
 package org.csu.pixelstrikebackend.lobby.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import org.csu.pixelstrikebackend.game.service.GameManager;
 import org.csu.pixelstrikebackend.lobby.common.CommonResponse;
 import org.csu.pixelstrikebackend.lobby.dto.LoginRequest;
 import org.csu.pixelstrikebackend.lobby.dto.LoginResponseDTO;
@@ -24,20 +25,14 @@ import java.util.Map;
 
 @Service("authService")
 public class AuthService {
-    @Autowired
-    private UserMapper userMapper;
-    @Autowired
-    private UserProfileMapper userProfileMapper;
-    @Autowired
-    private PasswordEncoder passwordEncoder;
-    @Autowired
-    private OnlineUserService onlineUserService;
-    @Autowired
-    private WebSocketSessionManager webSocketSessionManager;
-    @Autowired
-    private FriendMapper friendMapper;
-    @Autowired
-    private PlayerSessionService playerSessionService;
+    @Autowired private UserMapper userMapper;
+    @Autowired private UserProfileMapper userProfileMapper;
+    @Autowired private PasswordEncoder passwordEncoder;
+    @Autowired private OnlineUserService onlineUserService;
+    @Autowired private WebSocketSessionManager webSocketSessionManager;
+    @Autowired private FriendMapper friendMapper;
+    @Autowired private PlayerSessionService playerSessionService;
+    @Autowired private GameManager gameManager;
 
     @Transactional // 开启事务，确保两个表的插入操作要么都成功，要么都失败
     public CommonResponse<User> register(RegisterRequest request) {
@@ -95,7 +90,15 @@ public class AuthService {
         }
 
         Long activeGameId = playerSessionService.getActiveGameId(user.getId());
-
+        if (activeGameId != null) {
+            // 通过 GameManager 检查这个游戏ID是否还在活跃游戏列表中
+            if (!gameManager.getActiveGames().containsKey(activeGameId)) {
+                // 如果游戏已经不存在了（说明已结束），则清理该玩家的会话并重置 activeGameId
+                System.out.println("Player " + user.getId() + " is trying to reconnect to a concluded game " + activeGameId + ". Cleaning up session.");
+                playerSessionService.removePlayerFromGame(user.getId());
+                activeGameId = null; // 重置为 null，让他正常进入大厅
+            }
+        }
         // 如果玩家不在游戏中，执行“是否已在别处登录”的检查
         if (activeGameId == null && onlineUserService.isUserOnline(user.getId())) {
             return CommonResponse.createForError("登录失败，该账号已在别处登录");

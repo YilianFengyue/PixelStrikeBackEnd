@@ -1,51 +1,80 @@
 package org.csu.pixelstrikebackend.lobby.websocket;
 
+import org.csu.pixelstrikebackend.lobby.enums.UserStatus;
+import org.csu.pixelstrikebackend.lobby.service.CustomRoomService;
+import org.csu.pixelstrikebackend.lobby.service.MatchmakingService;
 import org.csu.pixelstrikebackend.lobby.service.OnlineUserService;
+import org.csu.pixelstrikebackend.lobby.service.PlayerSessionService; // 1. 引入 PlayerSessionService
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import org.springframework.web.reactive.socket.WebSocketHandler;
-import org.springframework.web.reactive.socket.WebSocketSession;
-import reactor.core.publisher.Mono;
+import org.springframework.web.socket.CloseStatus;
+import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 @Component
-public class UserStatusWebSocketHandler implements WebSocketHandler {
+public class UserStatusWebSocketHandler extends TextWebSocketHandler {
 
-    @Autowired
-    private WebSocketSessionManager sessionManager;
+    @Autowired private WebSocketSessionManager sessionManager;
+    @Autowired private OnlineUserService onlineUserService;
+    @Autowired private MatchmakingService matchmakingService;
+    @Autowired private CustomRoomService customRoomService;
+    @Autowired private PlayerSessionService playerSessionService; // 2. 注入 PlayerSessionService
 
-    @Autowired
-    private OnlineUserService onlineUserService;
-
+    /**
+     * 每次连接建立（无论是首次还是重连），都应视为一次用户上线事件。
+     */
     @Override
-    public Mono<Void> handle(WebSocketSession session) {
-        // 从握手请求的URI中获取token
-        String token = org.springframework.web.util.UriComponentsBuilder.fromUri(session.getHandshakeInfo().getUri())
-                .build()
-                .getQueryParams()
-                .getFirst("token");
-
-        // 验证token并获取userId
-        Integer userId = (token != null) ? org.csu.pixelstrikebackend.lobby.util.JwtUtil.verifyTokenAndGetUserId(token) : null;
-
-        // 如果在AuthWebFilter中没有成功放入userId，则拒绝连接
+    public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+        Integer userId = (Integer) session.getAttributes().get("userId");
         if (userId == null) {
-            System.err.println("WebSocket handshake rejected for session " + session.getId() + ": userId is null or token is invalid.");
-            return session.close(org.springframework.web.reactive.socket.CloseStatus.POLICY_VIOLATION.withReason("User ID not found or token invalid"));
+            session.close(CloseStatus.POLICY_VIOLATION.withReason("User ID not found, authentication failed."));
+            return;
         }
 
-        // 将验证后的userId存入session的attributes中，方便后续使用
-        session.getAttributes().put("userId", userId);
+        // 确保每次连接都将用户加入在线列表
+        onlineUserService.addUser(userId);
 
-        // 使用 doOnSubscribe 在连接实际建立时执行操作
-        return Mono.fromRunnable(() -> {
-                    sessionManager.addSession(userId, session);
-                })
-                .then(session.receive() // 持续监听客户端消息（即使我们不处理），以保持连接
-                        .then())
-                .doFinally(signalType -> { // 当连接关闭或出错时，执行清理
-                    System.out.println("WebSocket connection closed for user: " + userId + " with signal: " + signalType);
-                    sessionManager.removeSession(userId);
-                    onlineUserService.removeUser(userId);
-                });
+        System.out.println("Lobby WebSocket connection established for user: " + userId);
+        sessionManager.addSession(userId, session);
+    }
+
+    /**
+     * 连接关闭时，执行必要的清理，并将用户标记为离线。
+     */
+    @Override
+    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
+        Integer userId = (Integer) session.getAttributes().get("userId");
+        if (userId == null) {
+            return;
+        }
+
+        sessionManager.removeSession(userId);
+
+        // ★★★ 核心修复：增加游戏状态检查 ★★★
+        // 在移除用户前，检查他们是否还在一个有效的游戏会话中。
+        // 如果是，说明游戏尚未结束或正在由GameManager清理，此时不应将他们标记为离线。
+        if (playerSessionService.isPlayerInGame(userId)) {
+            System.out.println("Lobby WS closed for user " + userId + ", but they are in a game. Deferring status change to GameManager.");
+            return; // 提前返回，将状态清理的责任完全交给 GameManager
+        }
+
+        System.out.println("Lobby WebSocket connection closed for user: " + userId + " with status: " + status);
+
+        // 如果玩家不在游戏中，则执行正常的掉线清理
+        UserStatus currentUserStatus = onlineUserService.getUserStatus(userId);
+        if (currentUserStatus == UserStatus.MATCHING) {
+            matchmakingService.cancelMatchmaking(userId);
+        } else if (currentUserStatus == UserStatus.IN_ROOM) {
+            customRoomService.leaveRoom(userId);
+        }
+
+        // 最后，只有当玩家确实不在任何活动中时，才将他们从在线列表中移除
+        onlineUserService.removeUser(userId);
+    }
+
+    @Override
+    public void handleTransportError(WebSocketSession session, Throwable exception) throws Exception {
+        System.err.println("Lobby WebSocket transport error for user " + session.getAttributes().get("userId") + ": " + exception.getMessage());
+        afterConnectionClosed(session, CloseStatus.SERVER_ERROR);
     }
 }
