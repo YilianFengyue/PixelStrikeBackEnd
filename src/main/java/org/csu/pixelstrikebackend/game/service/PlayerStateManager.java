@@ -22,6 +22,8 @@ public class PlayerStateManager {
     private final Map<Integer, Long> deathTimestamps = new ConcurrentHashMap<>();
     @Autowired
     private GameSessionManager gameSessionManager;
+    @Getter
+    private final Map<Integer, Long> poisonedPlayers = new ConcurrentHashMap<>();
 
     // --- 快照与序列号 ---
     private static final long SNAPSHOT_KEEP_MS = 2000;
@@ -153,5 +155,11 @@ public class PlayerStateManager {
 
     public String getWeapon(Integer userId) {
         return weaponByPlayer.getOrDefault(userId, "Pistol");
+    }
+
+    public void applyPoison(int userId, long durationMs) {
+        if (isDead(userId)) return;
+        long poisonEndTime = System.currentTimeMillis() + durationMs;
+        poisonedPlayers.put(userId, poisonEndTime);
     }
 }

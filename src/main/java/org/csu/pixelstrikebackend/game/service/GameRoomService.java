@@ -153,28 +153,82 @@ public class GameRoomService {
             UserProfile pickerProfile = userProfileMapper.selectById(userId);
             String pickerNickname = (pickerProfile != null) ? pickerProfile.getNickname() : "一位玩家";
 
-            if ("HEALTH_PACK".equals(dropType)) {
-                playerStateManager.applyHeal(userId, 50);
+            switch (dropType) {
+                case "HEALTH_PACK":
+                    playerStateManager.applyHeal(userId, 50);
+                    int newHp = playerStateManager.getHp(userId);
+                    ObjectNode healthUpdateMsg = mapper.createObjectNode();
+                    healthUpdateMsg.put("type", "health_update");
+                    healthUpdateMsg.put("userId", userId);
+                    healthUpdateMsg.put("hp", newHp);
+                    sessionManager.broadcast(healthUpdateMsg.toString());
+                    break;
 
-                // 广播血量更新消息 (这个逻辑保持不变)
-                int newHp = playerStateManager.getHp(userId);
-                ObjectNode healthUpdateMsg = mapper.createObjectNode();
-                healthUpdateMsg.put("type", "health_update");
-                healthUpdateMsg.put("userId", userId);
-                healthUpdateMsg.put("hp", newHp);
-                sessionManager.broadcast(healthUpdateMsg.toString());
+                case "BOMB":
+                    // 立即对拾取者造成15点伤害
+                    GameRoomService.DamageResult res = playerStateManager.applyDamage(userId, userId, 15);
 
-            } else { // 如果不是血包，那就是武器
-                // 1. 在服务器上更新玩家的当前武器状态
-                playerStateManager.setWeapon(userId, dropType);
+                    ObjectNode dmgMsg = mapper.createObjectNode();
+                    dmgMsg.put("type", "damage");
+                    dmgMsg.put("attacker", userId); // 自己炸自己
+                    dmgMsg.put("victim", userId);
+                    dmgMsg.put("damage", 15);
+                    dmgMsg.put("hp", res.hp);
+                    dmgMsg.put("dead", res.dead);
+                    dmgMsg.put("kx", 0); // 道具爆炸通常没有击退
+                    dmgMsg.put("ky", 0);
+                    dmgMsg.put("srvTS", System.currentTimeMillis());
+                    sessionManager.broadcast(dmgMsg.toString());
 
-                // 2. 广播一个新的消息，通知所有客户端该玩家已切换武器
-                ObjectNode weaponEquipMsg = mapper.createObjectNode();
-                weaponEquipMsg.put("type", "weapon_equip");
-                weaponEquipMsg.put("userId", userId);
-                weaponEquipMsg.put("weaponType", dropType);
-                sessionManager.broadcast(weaponEquipMsg.toString());
+                    // 广播消息，让客户端播放爆炸特效
+                    ObjectNode bombMsg = mapper.createObjectNode();
+                    bombMsg.put("type", "player_bombed");
+                    bombMsg.put("userId", userId);
+                    sessionManager.broadcast(bombMsg.toString()); // 这个消息依然需要
+                    break;
+                case "POISON":
+                    // 让玩家中毒，持续10秒
+                    playerStateManager.applyPoison(userId, 10000);
+                    // 广播消息，让客户端播放中毒特效
+                    ObjectNode poisonMsg = mapper.createObjectNode();
+                    poisonMsg.put("type", "player_poisoned");
+                    poisonMsg.put("userId", userId);
+                    poisonMsg.put("duration", 10000); // 告诉客户端持续时间
+                    sessionManager.broadcast(poisonMsg.toString());
+                    break;
+
+                default: // 默认为武器
+                    playerStateManager.setWeapon(userId, dropType);
+                    ObjectNode weaponEquipMsg = mapper.createObjectNode();
+                    weaponEquipMsg.put("type", "weapon_equip");
+                    weaponEquipMsg.put("userId", userId);
+                    weaponEquipMsg.put("weaponType", dropType);
+                    sessionManager.broadcast(weaponEquipMsg.toString());
+                    break;
             }
+//
+//            if ("HEALTH_PACK".equals(dropType)) {
+//                playerStateManager.applyHeal(userId, 50);
+//
+//                // 广播血量更新消息 (这个逻辑保持不变)
+//                int newHp = playerStateManager.getHp(userId);
+//                ObjectNode healthUpdateMsg = mapper.createObjectNode();
+//                healthUpdateMsg.put("type", "health_update");
+//                healthUpdateMsg.put("userId", userId);
+//                healthUpdateMsg.put("hp", newHp);
+//                sessionManager.broadcast(healthUpdateMsg.toString());
+//
+//            } else { // 如果不是血包，那就是武器
+//                // 1. 在服务器上更新玩家的当前武器状态
+//                playerStateManager.setWeapon(userId, dropType);
+//
+//                // 2. 广播一个新的消息，通知所有客户端该玩家已切换武器
+//                ObjectNode weaponEquipMsg = mapper.createObjectNode();
+//                weaponEquipMsg.put("type", "weapon_equip");
+//                weaponEquipMsg.put("userId", userId);
+//                weaponEquipMsg.put("weaponType", dropType);
+//                sessionManager.broadcast(weaponEquipMsg.toString());
+//            }
 
             // 广播一个全局的拾取通知
             ObjectNode pickupNotification = mapper.createObjectNode();

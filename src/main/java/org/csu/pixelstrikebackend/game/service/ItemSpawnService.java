@@ -23,11 +23,12 @@ public class ItemSpawnService {
     private final ObjectMapper mapper = new ObjectMapper();
     private final Random random = new Random();
 
-    private final List<String> weaponDropTypes = Arrays.asList(
-            "MachineGun",
-            "Shotgun",
-            "Railgun",
-            "GrenadeLauncher"
+    private final List<String> supplyDropTypes = Arrays.asList(
+            "MachineGun",      // 机关枪
+            "Shotgun",         // 霰弹枪
+            "Railgun",         // 激光枪
+            "HEALTH_PACK",     // 血包
+            "POISON"           // 毒药
     );
 
     private final List<double[]> spawnPoints = Arrays.asList(
@@ -52,14 +53,8 @@ public class ItemSpawnService {
         System.out.println("Item spawner triggered...");
 
         double[] point = spawnPoints.get(random.nextInt(spawnPoints.size()));
+        String dropType = supplyDropTypes.get(random.nextInt(supplyDropTypes.size()));
 
-        String dropType;
-        if (random.nextBoolean()) {
-            // 随机选择一种武器
-            dropType = weaponDropTypes.get(random.nextInt(weaponDropTypes.size()));
-        } else {
-            dropType = "HEALTH_PACK";
-        }
         SupplyDrop newDrop = new SupplyDrop(dropType, point[0], point[1]);
         supplyDropManager.addDrop(newDrop);
 
