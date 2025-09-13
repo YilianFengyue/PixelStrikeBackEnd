@@ -61,6 +61,9 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 case "shot":
                     roomService.handleShot(session, root);
                     break;
+                case "pickup_supply":
+                    roomService.handleSupplyPickup(session, root);
+                    break;
                 default:
                     System.out.println("IGNORED unknown msg type=" + type + " raw=" + payload);
             }

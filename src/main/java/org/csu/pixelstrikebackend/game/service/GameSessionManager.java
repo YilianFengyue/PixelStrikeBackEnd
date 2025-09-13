@@ -1,4 +1,3 @@
-// src/main/java/org/csu/pixelstrikebackend/game/service/GameSessionManager.java
 package org.csu.pixelstrikebackend.game.service;
 
 import org.springframework.stereotype.Service;

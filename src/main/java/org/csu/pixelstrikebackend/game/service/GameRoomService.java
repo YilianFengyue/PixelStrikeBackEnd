@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.csu.pixelstrikebackend.game.model.ServerProjectile;
+import org.csu.pixelstrikebackend.game.model.SupplyDrop;
 import org.csu.pixelstrikebackend.lobby.enums.UserStatus;
 import org.csu.pixelstrikebackend.lobby.service.OnlineUserService;
 import org.csu.pixelstrikebackend.lobby.service.PlayerSessionService;
@@ -20,14 +21,13 @@ public class GameRoomService {
     private final ObjectMapper mapper = new ObjectMapper();
 
     // --- 注入新的、解耦的Service ---
-    @Autowired private GameManager gameManager;
     @Autowired private GameSessionManager sessionManager;
     @Autowired private PlayerStateManager playerStateManager;
-    @Autowired private HitValidationService hitValidationService;
     @Autowired private ClientStateService clientStateService;
     @Autowired private ProjectileManager projectileManager;
     @Autowired private OnlineUserService onlineUserService;
     @Autowired private PlayerSessionService playerSessionService;
+    @Autowired private SupplyDropManager supplyDropManager;
 
     // 命中判定常量 (可以考虑移到GameConfig)
     private static final double KB_X = 220.0;
@@ -138,6 +138,35 @@ public class GameRoomService {
         shot.put("weaponType", weaponType);
         sessionManager.broadcast(shot.toString());
 
+    }
+
+    public void handleSupplyPickup(WebSocketSession session, JsonNode root) {
+        Integer userId = (Integer) session.getAttributes().get("userId");
+        if (userId == null) return;
+        long dropId = root.path("dropId").asLong();
+        SupplyDrop drop = supplyDropManager.removeDrop(dropId);
+        if (drop != null) {
+            System.out.println("Player " + userId + " picked up supply drop " + dropId);
+            if ("HEALTH_PACK".equals(drop.getType())) {
+                playerStateManager.applyHeal(userId, 15); // 血包回复15点生命
+            }
+            // 1. 获取玩家回血后的最新血量
+            int newHp = playerStateManager.getHp(userId);
+
+            // 2. 构建一个新的消息通知所有客户端
+            ObjectNode healthUpdateMsg = mapper.createObjectNode();
+            healthUpdateMsg.put("type", "health_update");
+            healthUpdateMsg.put("userId", userId);
+            healthUpdateMsg.put("hp", newHp);
+            sessionManager.broadcast(healthUpdateMsg.toString()); // 广播给所有人
+
+            // 3. 仍然广播移除消息，让所有客户端删除实体
+            ObjectNode removeMsg = mapper.createObjectNode();
+            removeMsg.put("type", "supply_removed");
+            removeMsg.put("dropId", dropId);
+            sessionManager.broadcast(removeMsg.toString());
+        }
+        // 如果 drop 为 null，说明这个物品已经被别人抢先了，服务器不做任何事。
     }
 
     public void handleLeave(WebSocketSession session) {
