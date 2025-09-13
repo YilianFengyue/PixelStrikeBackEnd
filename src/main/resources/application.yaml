@@ -12,15 +12,15 @@ spring:
     username: root
     password: 1234
     # password: abcABC369258
-  #  servlet:
-  #    multipart:
-  #      enabled: true
-  #      max-file-size: 50MB
-  #      max-request-size: 100MB
-  webflux:
+  servlet:
     multipart:
-      max-in-memory-size: 50MB # 调整为你需要的大小
-      max-parts: 10
+      enabled: true
+      max-file-size: 50MB
+      max-request-size: 100MB
+#  webflux:
+#    multipart:
+#      max-in-memory-size: 50MB # 调整为你需要的大小
+#      max-parts: 10
 
 mybatis-plus:
   configuration:
@@ -46,7 +46,7 @@ logging:
 # ===============================================
 game:
   matchmaking:
-    room-max-size: 3 # 匹配房间大小
+    room-max-size: 2 # 匹配房间大小
   rules:
     kills-to-win: 2 # 胜利所需的击杀数
     max-duration-ms: 300000 # 游戏最长持续时间 (5分钟)
