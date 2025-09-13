@@ -54,7 +54,8 @@ public class GameManager implements GameLobbyBridge {
                 // 1. 清理游戏会话
                 playerSessionService.removePlayerFromGame(playerId);
                 // 2. ★★★ 立即将玩家状态重置为 ONLINE ★★★
-                onlineUserService.updateUserStatus(playerId, UserStatus.ONLINE);
+                //这里交给大厅服务器来处理，游戏服务器无需关注
+                //onlineUserService.updateUserStatus(playerId, UserStatus.ONLINE);
             }
         }
 
