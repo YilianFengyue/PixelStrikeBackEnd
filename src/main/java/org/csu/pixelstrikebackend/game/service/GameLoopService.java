@@ -12,6 +12,7 @@ import org.csu.pixelstrikebackend.lobby.entity.MatchParticipant;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.awt.geom.Point2D;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -63,43 +64,96 @@ public class GameLoopService {
     private void updateProjectiles(double deltaTime) {
         List<ServerProjectile> projectiles = projectileManager.getProjectiles();
         if (projectiles.isEmpty()) return;
-        // 命中判定的常量
+
         final double HB_OFF_X = 80.0, HB_OFF_Y = 20.0, HB_W = 86.0, HB_H = 160.0;
-        for (ServerProjectile proj : projectiles) {
-            double oldX = proj.getX();
-            double oldY = proj.getY();
-            proj.update(deltaTime); // 更新子弹位置
-            boolean hit = false;
-            // 检查与所有非死亡、非射手自己的玩家的碰撞
-            for (Integer victimId : playerStateManager.getHpByPlayer().keySet()) {
-                if (victimId.equals(proj.getShooterId()) || playerStateManager.isDead(victimId)) {
-                    continue;
+
+        // 使用迭代器或复制列表以安全地移除元素
+        for (Iterator<ServerProjectile> iterator = projectiles.iterator(); iterator.hasNext(); ) {
+            ServerProjectile proj = iterator.next();
+            boolean shouldRemove = false;
+
+            // --- 核心修改：根据武器类型执行不同逻辑 ---
+            if ("GrenadeLauncher".equals(proj.getWeaponType())) {
+                // --- 榴弹逻辑 ---
+                // 注意：一个简化的实现。榴弹应该有重力模拟。
+                // 这里我们假设它飞到最大射程后爆炸。
+                proj.update(deltaTime);
+                if (proj.isOutOfRange(proj.getX(), proj.getY())) { // 简化版范围检查
+                    handleExplosion(proj); // 调用爆炸处理
+                    shouldRemove = true;
                 }
-                // 获取玩家在当前时刻的精确位置
-                Optional<GameRoomService.StateSnapshot> sOpt = playerStateManager.interpolateAt(victimId, System.currentTimeMillis());
-                if (sOpt.isEmpty()) continue;
-                GameRoomService.StateSnapshot victimState = sOpt.get();
-                // 简单的AABB碰撞检测
-                double minX = victimState.x + HB_OFF_X;
-                double minY = victimState.y + HB_OFF_Y;
-                double maxX = minX + HB_W;
-                double maxY = minY + HB_H;
-                // 检查子弹在这一帧的移动轨迹是否穿过了玩家的包围盒
-                double tEnter = HitMath.raySegmentVsAABB(oldX, oldY, proj.getX() - oldX, proj.getY() - oldY, minX, minY, maxX, maxY);
-                if (tEnter <= 1.0) { // tEnter <= 1.0 意味着线段与包围盒相交
-                    handleHit(proj, victimId, 10); // 假设伤害为10
-                    hit = true;
-                    break; // 一颗子弹只命中一个目标
+            } else {
+                // --- 默认子弹/射线枪逻辑 (直线检测) ---
+                double oldX = proj.getX();
+                double oldY = proj.getY();
+                proj.update(deltaTime);
+                boolean hit = false;
+
+                for (Integer victimId : playerStateManager.getHpByPlayer().keySet()) {
+                    if (victimId.equals(proj.getShooterId()) || playerStateManager.isDead(victimId)) {
+                        continue;
+                    }
+                    Optional<GameRoomService.StateSnapshot> sOpt = playerStateManager.interpolateAt(victimId, System.currentTimeMillis());
+                    if (sOpt.isEmpty()) continue;
+
+                    GameRoomService.StateSnapshot victimState = sOpt.get();
+                    double minX = victimState.x + HB_OFF_X;
+                    double minY = victimState.y + HB_OFF_Y;
+                    double maxX = minX + HB_W;
+                    double maxY = minY + HB_H;
+
+                    double tEnter = HitMath.raySegmentVsAABB(oldX, oldY, proj.getX() - oldX, proj.getY() - oldY, minX, minY, maxX, maxY);
+
+                    if (tEnter <= 1.0) {
+                        // ★ 伤害修复：使用子弹自身的伤害值，而不是硬编码的 10 ★
+                        handleHit(proj, victimId, proj.getDamage());
+                        hit = true;
+                        break;
+                    }
+                }
+
+                if (hit || proj.isOutOfRange(proj.getX(), proj.getY())) {
+                    shouldRemove = true;
                 }
             }
-            // 如果子弹命中或飞出范围，则移除
-            if (hit || proj.isOutOfRange(proj.getX(), proj.getY())) { // 这里简化了范围检查，可以做得更精确
+
+            if (shouldRemove) {
+                // 从 projectileManager 中移除，而不是直接从列表移除
                 projectileManager.removeProjectile(proj);
             }
         }
     }
 
-    // ★ 新增：处理命中事件的方法
+    // ★ 新增：处理爆炸范围伤害的方法 ★
+    private void handleExplosion(ServerProjectile projectile) {
+        final double EXPLOSION_RADIUS = 150.0; // 爆炸半径，可以放入配置
+        final double HB_W = 86.0, HB_H = 160.0;
+
+        Point2D.Double explosionCenter = new Point2D.Double(projectile.getX(), projectile.getY());
+
+        // 遍历所有玩家，检查是否在爆炸范围内
+        for (Integer victimId : playerStateManager.getHpByPlayer().keySet()) {
+            if (playerStateManager.isDead(victimId)) {
+                continue;
+            }
+
+            Optional<GameRoomService.StateSnapshot> sOpt = playerStateManager.interpolateAt(victimId, System.currentTimeMillis());
+            if (sOpt.isEmpty()) continue;
+            GameRoomService.StateSnapshot victimState = sOpt.get();
+
+            // 计算玩家中心点
+            Point2D.Double victimCenter = new Point2D.Double(victimState.x + HB_W / 2.0, victimState.y + HB_H / 2.0);
+
+            // 如果中心点距离小于爆炸半径，则造成伤害
+            if (explosionCenter.distance(victimCenter) <= EXPLOSION_RADIUS) {
+                // 爆炸伤害也使用 handleHit 来处理，逻辑统一
+                handleHit(projectile, victimId, projectile.getDamage());
+            }
+        }
+    }
+
+
+    // 处理命中事件的方法
     private void handleHit(ServerProjectile projectile, int victimId, int damage) {
         int shooterId = projectile.getShooterId();
 

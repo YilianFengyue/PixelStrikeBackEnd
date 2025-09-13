@@ -116,8 +116,13 @@ public class GameRoomService {
         double dx = root.path("dx").asDouble(), dy = root.path("dy").asDouble();
         double range = root.path("range").asDouble(0);
 
-        // 不再进行射线检测，而是创建并注册一个权威子弹
-        ServerProjectile serverProjectile = new ServerProjectile(shooterId, ox, oy, dx, dy, BULLET_SPEED, range);
+        int damage = root.path("damage").asInt(10);
+        String weaponType = root.path("weaponType").asText("Pistol"); // 提供一个默认值
+        ServerProjectile serverProjectile = new ServerProjectile(
+                shooterId, ox, oy, dx, dy, BULLET_SPEED, range,
+                damage, // 传入真实的伤害
+                weaponType // 传入真实的武器类型
+        );
         projectileManager.addProjectile(serverProjectile);
 
         // 广播 shot 消息，让所有客户端生成纯视觉的子弹特效
@@ -130,6 +135,7 @@ public class GameRoomService {
         shot.put("dx", dx); shot.put("dy", dy);
         shot.put("range", range);
         shot.put("srvTS", now);
+        shot.put("weaponType", weaponType);
         sessionManager.broadcast(shot.toString());
 
     }
