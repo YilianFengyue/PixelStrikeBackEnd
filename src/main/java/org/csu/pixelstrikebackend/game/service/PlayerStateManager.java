@@ -16,6 +16,7 @@ public class PlayerStateManager {
     private static final int MAX_HP = 100;
     @Getter
     final Map<Integer, Integer> hpByPlayer = new ConcurrentHashMap<>();
+    private final Map<Integer, String> weaponByPlayer = new ConcurrentHashMap<>();
     private final Set<Integer> deadSet = ConcurrentHashMap.newKeySet();
     @Getter
     private final Map<Integer, Long> deathTimestamps = new ConcurrentHashMap<>();
@@ -37,6 +38,7 @@ public class PlayerStateManager {
         deathTimestamps.remove(userId);
         killsByPlayer.put(userId, 0);
         deathsByPlayer.put(userId, 0);
+        weaponByPlayer.put(userId, "Pistol");
     }
 
     public GameRoomService.DamageResult applyDamage(int byId, int victimId, int amount) {
@@ -143,5 +145,13 @@ public class PlayerStateManager {
          healMsg.put("userId", userId);
          healMsg.put("newHp", newHp);
          gameSessionManager.broadcast(healMsg.toString());
+    }
+
+    public void setWeapon(Integer userId, String weaponType) {
+        weaponByPlayer.put(userId, weaponType);
+    }
+
+    public String getWeapon(Integer userId) {
+        return weaponByPlayer.getOrDefault(userId, "Pistol");
     }
 }

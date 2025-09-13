@@ -5,7 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.csu.pixelstrikebackend.game.model.ServerProjectile;
 import org.csu.pixelstrikebackend.game.model.SupplyDrop;
+import org.csu.pixelstrikebackend.lobby.entity.UserProfile;
 import org.csu.pixelstrikebackend.lobby.enums.UserStatus;
+import org.csu.pixelstrikebackend.lobby.mapper.UserProfileMapper;
 import org.csu.pixelstrikebackend.lobby.service.OnlineUserService;
 import org.csu.pixelstrikebackend.lobby.service.PlayerSessionService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,6 +30,7 @@ public class GameRoomService {
     @Autowired private OnlineUserService onlineUserService;
     @Autowired private PlayerSessionService playerSessionService;
     @Autowired private SupplyDropManager supplyDropManager;
+    @Autowired private UserProfileMapper userProfileMapper;
 
     // 命中判定常量 (可以考虑移到GameConfig)
     private static final double KB_X = 220.0;
@@ -146,21 +149,41 @@ public class GameRoomService {
         long dropId = root.path("dropId").asLong();
         SupplyDrop drop = supplyDropManager.removeDrop(dropId);
         if (drop != null) {
-            System.out.println("Player " + userId + " picked up supply drop " + dropId);
-            if ("HEALTH_PACK".equals(drop.getType())) {
-                playerStateManager.applyHeal(userId, 15); // 血包回复15点生命
+            String dropType = drop.getType();
+            UserProfile pickerProfile = userProfileMapper.selectById(userId);
+            String pickerNickname = (pickerProfile != null) ? pickerProfile.getNickname() : "一位玩家";
+
+            if ("HEALTH_PACK".equals(dropType)) {
+                playerStateManager.applyHeal(userId, 50);
+
+                // 广播血量更新消息 (这个逻辑保持不变)
+                int newHp = playerStateManager.getHp(userId);
+                ObjectNode healthUpdateMsg = mapper.createObjectNode();
+                healthUpdateMsg.put("type", "health_update");
+                healthUpdateMsg.put("userId", userId);
+                healthUpdateMsg.put("hp", newHp);
+                sessionManager.broadcast(healthUpdateMsg.toString());
+
+            } else { // 如果不是血包，那就是武器
+                // 1. 在服务器上更新玩家的当前武器状态
+                playerStateManager.setWeapon(userId, dropType);
+
+                // 2. 广播一个新的消息，通知所有客户端该玩家已切换武器
+                ObjectNode weaponEquipMsg = mapper.createObjectNode();
+                weaponEquipMsg.put("type", "weapon_equip");
+                weaponEquipMsg.put("userId", userId);
+                weaponEquipMsg.put("weaponType", dropType);
+                sessionManager.broadcast(weaponEquipMsg.toString());
             }
-            // 1. 获取玩家回血后的最新血量
-            int newHp = playerStateManager.getHp(userId);
 
-            // 2. 构建一个新的消息通知所有客户端
-            ObjectNode healthUpdateMsg = mapper.createObjectNode();
-            healthUpdateMsg.put("type", "health_update");
-            healthUpdateMsg.put("userId", userId);
-            healthUpdateMsg.put("hp", newHp);
-            sessionManager.broadcast(healthUpdateMsg.toString()); // 广播给所有人
+            // 广播一个全局的拾取通知
+            ObjectNode pickupNotification = mapper.createObjectNode();
+            pickupNotification.put("type", "pickup_notification");
+            pickupNotification.put("pickerNickname", pickerNickname);
+            pickupNotification.put("itemType", dropType);
+            sessionManager.broadcast(pickupNotification.toString());
 
-            // 3. 仍然广播移除消息，让所有客户端删除实体
+            // 统一广播移除消息
             ObjectNode removeMsg = mapper.createObjectNode();
             removeMsg.put("type", "supply_removed");
             removeMsg.put("dropId", dropId);

@@ -23,6 +23,13 @@ public class ItemSpawnService {
     private final ObjectMapper mapper = new ObjectMapper();
     private final Random random = new Random();
 
+    private final List<String> weaponDropTypes = Arrays.asList(
+            "MachineGun",
+            "Shotgun",
+            "Railgun",
+            "GrenadeLauncher"
+    );
+
     private final List<double[]> spawnPoints = Arrays.asList(
             // 在 X=800 的平台上方
             new double[]{950, 2500},
@@ -46,11 +53,16 @@ public class ItemSpawnService {
 
         double[] point = spawnPoints.get(random.nextInt(spawnPoints.size()));
 
-        // 使用修改后的坐标创建物资
-        SupplyDrop newDrop = new SupplyDrop("HEALTH_PACK", point[0], point[1]);
+        String dropType;
+        if (random.nextBoolean()) {
+            // 随机选择一种武器
+            dropType = weaponDropTypes.get(random.nextInt(weaponDropTypes.size()));
+        } else {
+            dropType = "HEALTH_PACK";
+        }
+        SupplyDrop newDrop = new SupplyDrop(dropType, point[0], point[1]);
         supplyDropManager.addDrop(newDrop);
 
-        // 构建并广播通知消息 (这部分逻辑不变)
         ObjectNode spawnMsg = mapper.createObjectNode();
         spawnMsg.put("type", "supply_spawn");
         spawnMsg.put("dropId", newDrop.getId());
@@ -59,7 +71,6 @@ public class ItemSpawnService {
         spawnMsg.put("y", newDrop.getY());
 
         sessionManager.broadcast(spawnMsg.toString());
-
         System.out.println("Spawned " + newDrop.getType() + " at (" + newDrop.getX() + ", " + newDrop.getY() + ")");
     }
 }
