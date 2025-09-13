@@ -14,10 +14,7 @@ import org.springframework.stereotype.Service;
 
 import java.awt.geom.Point2D;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 @Service
 public class GameLoopService {
@@ -167,8 +164,8 @@ public class GameLoopService {
         }
 
         double sign = projectile.getVelocityX() >= 0 ? 1.0 : -1.0;
-        double kx = sign * 220.0; // 击退效果
-        double ky = 0.0;
+        double kx = sign * 900.0; // 水平击退力
+        double ky = 400.0;       // 向上的击飞效果
 
         ObjectNode dmg = mapper.createObjectNode();
         dmg.put("type", "damage");
@@ -258,21 +255,26 @@ public class GameLoopService {
 
         gameSessionManager.broadcast(gameOverMsg.toString());
     }
-    
+
     private void respawnPlayer(Integer userId) {
         System.out.println("Respawning player " + userId);
         playerStateManager.respawnPlayer(userId);
 
-        double spawnX = 500;
-        double spawnY = gameConfig.getPhysics().getGroundY() - 128; // 使用配置
+        // 在地图宽度范围内随机生成X坐标 (左右留出 200 像素边距，避免刷在地图边缘)
+        double spawnX = ThreadLocalRandom.current().nextDouble(200.0, gameConfig.getPhysics().getMapW() - 200.0);
+
+        // 在地面上方 300 到 600 像素的高度随机生成Y坐标
+        double spawnY = gameConfig.getPhysics().getGroundY() - ThreadLocalRandom.current().nextDouble(300.0, 600.0);
 
         ObjectNode respawnMsg = mapper.createObjectNode();
         respawnMsg.put("type", "respawn");
         respawnMsg.put("id", userId);
-        respawnMsg.put("x", spawnX);
-        respawnMsg.put("y", spawnY);
+        respawnMsg.put("x", spawnX); // 使用新的随机X
+        respawnMsg.put("y", spawnY); // 使用新的随机Y
         respawnMsg.put("hp", gameConfig.getPlayer().getMaxHealth());
         respawnMsg.put("serverTime", System.currentTimeMillis());
+
+        System.out.println("[DEBUG] Server is broadcasting respawn for user " + userId + " at X=" + spawnX + ", Y=" + spawnY);
 
         gameSessionManager.broadcast(respawnMsg.toString());
     }

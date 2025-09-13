@@ -3,6 +3,7 @@ package org.csu.pixelstrikebackend.game.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.csu.pixelstrikebackend.config.GameConfig;
 import org.csu.pixelstrikebackend.game.model.ServerProjectile;
 import org.csu.pixelstrikebackend.game.model.SupplyDrop;
 import org.csu.pixelstrikebackend.lobby.entity.UserProfile;
@@ -16,6 +17,7 @@ import org.springframework.web.socket.WebSocketSession;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 public class GameRoomService {
@@ -31,6 +33,7 @@ public class GameRoomService {
     @Autowired private PlayerSessionService playerSessionService;
     @Autowired private SupplyDropManager supplyDropManager;
     @Autowired private UserProfileMapper userProfileMapper;
+    @Autowired private GameConfig gameConfig;
 
     // 命中判定常量 (可以考虑移到GameConfig)
     private static final double KB_X = 220.0;
@@ -69,10 +72,15 @@ public class GameRoomService {
 
         playerStateManager.initializePlayer(userId);
 
+        double spawnX = ThreadLocalRandom.current().nextDouble(200.0, gameConfig.getPhysics().getMapW() - 200.0);
+        double spawnY = gameConfig.getPhysics().getGroundY() - ThreadLocalRandom.current().nextDouble(300.0, 600.0);
+
         ObjectNode welcome = mapper.createObjectNode();
         welcome.put("type", "welcome");
         welcome.put("id", userId);
         welcome.put("serverTime", System.currentTimeMillis());
+        welcome.put("x", spawnX); // 新增：初始X坐标
+        welcome.put("y", spawnY); // 新增：初始Y坐标
         sessionManager.sendTo(session, welcome.toString());
 
         ObjectNode joined = mapper.createObjectNode();

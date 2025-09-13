@@ -27,7 +27,7 @@ public class GameSessionManager {
         TextMessage message = new TextMessage(json);
         // 创建会话列表的快照以进行迭代，避免在迭代时修改
         List<WebSocketSession> currentSessions = new ArrayList<>(sessions.values());
-        System.out.println("[BROADCAST] -> " + currentSessions.size() + " sessions : " + json);
+//        System.out.println("[BROADCAST] -> " + currentSessions.size() + " sessions : " + json);
         for (WebSocketSession session : currentSessions) {
             sendTo(session, message);
         }
