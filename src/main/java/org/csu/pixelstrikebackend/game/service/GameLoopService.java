@@ -12,6 +12,7 @@ import org.csu.pixelstrikebackend.lobby.entity.MatchParticipant;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.awt.geom.Point2D;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -49,9 +50,9 @@ public class GameLoopService {
             long now = System.currentTimeMillis();
             double deltaTime = gameConfig.getEngine().getTickRateMs() / 1000.0; // 转换为秒
             handleRespawns(now);
-
             // 更新所有子弹的位置并检查碰撞
             updateProjectiles(deltaTime);
+            handlePoisonDamage(now);
             checkGameOverConditions(now);
         } catch (Exception e) {
             System.err.println("Error in game tick: " + e.getMessage());
@@ -59,47 +60,104 @@ public class GameLoopService {
         }
     }
 
+    private void handlePoisonDamage(long now) {
+        Map<Integer, Long> poisoned = playerStateManager.getPoisonedPlayers();
+        if (poisoned.isEmpty()) return;
+        // 使用迭代器遍历以安全地移除元素
+        for (Iterator<Map.Entry<Integer, Long>> it = poisoned.entrySet().iterator(); it.hasNext();) {
+            Map.Entry<Integer, Long> entry = it.next();
+            Integer playerId = entry.getKey();
+            Long poisonEndTime = entry.getValue();
+            if (now >= poisonEndTime) {
+                // 中毒时间到，移除效果
+                it.remove();
+            } else {
+                // 每秒造成2点伤害 (可以调整)
+                // 通过取模运算，确保大约每秒触发一次
+                if (now % 1000 < gameConfig.getEngine().getTickRateMs()) {
+                    handleEnvironmentalDamage(playerId, 2, "POISON");                 }
+            }
+        }
+    }
+
+    private void handleEnvironmentalDamage(int victimId, int damage, String damageType) {
+        // 环境伤害没有攻击者，可以用一个特殊ID（如-1）或 victimId 本身
+        GameRoomService.DamageResult res = playerStateManager.applyDamage(-1, victimId, damage);
+
+        // 同样需要广播 damage 消息，让客户端知道受到了伤害
+        ObjectNode dmg = mapper.createObjectNode();
+        dmg.put("type", "damage");
+        dmg.put("attacker", -1); // -1 代表环境伤害
+        dmg.put("victim", victimId);
+        dmg.put("damage", damage);
+        dmg.put("hp", res.hp);
+        dmg.put("dead", res.dead);
+        // 环境伤害通常没有击退效果
+        dmg.put("kx", 0);
+        dmg.put("ky", 0);
+        dmg.put("srvTS", System.currentTimeMillis());
+        gameSessionManager.broadcast(dmg.toString());
+
+        // 如果玩家因此死亡，记录死亡事件（但没有击杀者）
+        if (res.dead) {
+            playerStateManager.recordKill(null, victimId);
+        }
+    }
+
     // 子弹更新与碰撞检测逻辑
     private void updateProjectiles(double deltaTime) {
         List<ServerProjectile> projectiles = projectileManager.getProjectiles();
         if (projectiles.isEmpty()) return;
-        // 命中判定的常量
+
         final double HB_OFF_X = 80.0, HB_OFF_Y = 20.0, HB_W = 86.0, HB_H = 160.0;
-        for (ServerProjectile proj : projectiles) {
+
+        // 使用迭代器或复制列表以安全地移除元素
+        for (Iterator<ServerProjectile> iterator = projectiles.iterator(); iterator.hasNext(); ) {
+            ServerProjectile proj = iterator.next();
+            boolean shouldRemove = false;
+
+            // --- 默认子弹/射线枪逻辑 ---
             double oldX = proj.getX();
             double oldY = proj.getY();
-            proj.update(deltaTime); // 更新子弹位置
+            proj.update(deltaTime);
             boolean hit = false;
-            // 检查与所有非死亡、非射手自己的玩家的碰撞
+
             for (Integer victimId : playerStateManager.getHpByPlayer().keySet()) {
                 if (victimId.equals(proj.getShooterId()) || playerStateManager.isDead(victimId)) {
                     continue;
                 }
-                // 获取玩家在当前时刻的精确位置
                 Optional<GameRoomService.StateSnapshot> sOpt = playerStateManager.interpolateAt(victimId, System.currentTimeMillis());
                 if (sOpt.isEmpty()) continue;
+
                 GameRoomService.StateSnapshot victimState = sOpt.get();
-                // 简单的AABB碰撞检测
                 double minX = victimState.x + HB_OFF_X;
                 double minY = victimState.y + HB_OFF_Y;
                 double maxX = minX + HB_W;
                 double maxY = minY + HB_H;
-                // 检查子弹在这一帧的移动轨迹是否穿过了玩家的包围盒
+
                 double tEnter = HitMath.raySegmentVsAABB(oldX, oldY, proj.getX() - oldX, proj.getY() - oldY, minX, minY, maxX, maxY);
-                if (tEnter <= 1.0) { // tEnter <= 1.0 意味着线段与包围盒相交
-                    handleHit(proj, victimId, 10); // 假设伤害为10
+
+                if (tEnter <= 1.0) {
+                    // ★ 伤害修复：使用子弹自身的伤害值，而不是硬编码的 10 ★
+                    handleHit(proj, victimId, proj.getDamage());
                     hit = true;
-                    break; // 一颗子弹只命中一个目标
+                    break;
                 }
             }
-            // 如果子弹命中或飞出范围，则移除
-            if (hit || proj.isOutOfRange(proj.getX(), proj.getY())) { // 这里简化了范围检查，可以做得更精确
+
+            if (hit || proj.isOutOfRange(proj.getX(), proj.getY())) {
+                shouldRemove = true;
+            }
+
+
+            if (shouldRemove) {
+                // 从 projectileManager 中移除，而不是直接从列表移除
                 projectileManager.removeProjectile(proj);
             }
         }
     }
 
-    // ★ 新增：处理命中事件的方法
+    // 处理命中事件的方法
     private void handleHit(ServerProjectile projectile, int victimId, int damage) {
         int shooterId = projectile.getShooterId();
 

@@ -1,7 +1,10 @@
 // src/main/java/org/csu/pixelstrikebackend/game/service/PlayerStateManager.java
 package org.csu.pixelstrikebackend.game.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.Getter;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -13,8 +16,14 @@ public class PlayerStateManager {
     private static final int MAX_HP = 100;
     @Getter
     final Map<Integer, Integer> hpByPlayer = new ConcurrentHashMap<>();
+    private final Map<Integer, String> weaponByPlayer = new ConcurrentHashMap<>();
     private final Set<Integer> deadSet = ConcurrentHashMap.newKeySet();
+    @Getter
     private final Map<Integer, Long> deathTimestamps = new ConcurrentHashMap<>();
+    @Autowired
+    private GameSessionManager gameSessionManager;
+    @Getter
+    private final Map<Integer, Long> poisonedPlayers = new ConcurrentHashMap<>();
 
     // --- 快照与序列号 ---
     private static final long SNAPSHOT_KEEP_MS = 2000;
@@ -31,6 +40,7 @@ public class PlayerStateManager {
         deathTimestamps.remove(userId);
         killsByPlayer.put(userId, 0);
         deathsByPlayer.put(userId, 0);
+        weaponByPlayer.put(userId, "Pistol");
     }
 
     public GameRoomService.DamageResult applyDamage(int byId, int victimId, int amount) {
@@ -121,8 +131,35 @@ public class PlayerStateManager {
     public boolean isDead(int userId) {
         return deadSet.contains(userId);
     }
-    
-    public Map<Integer, Long> getDeathTimestamps() {
-        return deathTimestamps;
+
+    public void applyHeal(int userId, int amount) {
+        if (isDead(userId) || amount <= 0) return;
+
+        int currentHp = getHp(userId);
+        int newHp = Math.min(MAX_HP, currentHp + amount);
+        hpByPlayer.put(userId, newHp);
+
+        // (可选) 你可以广播一个 "player_healed" 消息，让客户端显示特效
+        // 这可以让所有玩家都看到有人回血了
+        // 示例:
+         ObjectNode healMsg = new ObjectMapper().createObjectNode();
+         healMsg.put("type", "player_healed");
+         healMsg.put("userId", userId);
+         healMsg.put("newHp", newHp);
+         gameSessionManager.broadcast(healMsg.toString());
+    }
+
+    public void setWeapon(Integer userId, String weaponType) {
+        weaponByPlayer.put(userId, weaponType);
+    }
+
+    public String getWeapon(Integer userId) {
+        return weaponByPlayer.getOrDefault(userId, "Pistol");
+    }
+
+    public void applyPoison(int userId, long durationMs) {
+        if (isDead(userId)) return;
+        long poisonEndTime = System.currentTimeMillis() + durationMs;
+        poisonedPlayers.put(userId, poisonEndTime);
     }
 }

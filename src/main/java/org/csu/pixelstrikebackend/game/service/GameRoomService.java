@@ -4,7 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.csu.pixelstrikebackend.game.model.ServerProjectile;
+import org.csu.pixelstrikebackend.game.model.SupplyDrop;
+import org.csu.pixelstrikebackend.lobby.entity.UserProfile;
 import org.csu.pixelstrikebackend.lobby.enums.UserStatus;
+import org.csu.pixelstrikebackend.lobby.mapper.UserProfileMapper;
 import org.csu.pixelstrikebackend.lobby.service.OnlineUserService;
 import org.csu.pixelstrikebackend.lobby.service.PlayerSessionService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,14 +23,14 @@ public class GameRoomService {
     private final ObjectMapper mapper = new ObjectMapper();
 
     // --- 注入新的、解耦的Service ---
-    @Autowired private GameManager gameManager;
     @Autowired private GameSessionManager sessionManager;
     @Autowired private PlayerStateManager playerStateManager;
-    @Autowired private HitValidationService hitValidationService;
     @Autowired private ClientStateService clientStateService;
     @Autowired private ProjectileManager projectileManager;
     @Autowired private OnlineUserService onlineUserService;
     @Autowired private PlayerSessionService playerSessionService;
+    @Autowired private SupplyDropManager supplyDropManager;
+    @Autowired private UserProfileMapper userProfileMapper;
 
     // 命中判定常量 (可以考虑移到GameConfig)
     private static final double KB_X = 220.0;
@@ -116,8 +119,13 @@ public class GameRoomService {
         double dx = root.path("dx").asDouble(), dy = root.path("dy").asDouble();
         double range = root.path("range").asDouble(0);
 
-        // 不再进行射线检测，而是创建并注册一个权威子弹
-        ServerProjectile serverProjectile = new ServerProjectile(shooterId, ox, oy, dx, dy, BULLET_SPEED, range);
+        int damage = root.path("damage").asInt(10);
+        String weaponType = root.path("weaponType").asText("Pistol"); // 提供一个默认值
+        ServerProjectile serverProjectile = new ServerProjectile(
+                shooterId, ox, oy, dx, dy, BULLET_SPEED, range,
+                damage, // 传入真实的伤害
+                weaponType // 传入真实的武器类型
+        );
         projectileManager.addProjectile(serverProjectile);
 
         // 广播 shot 消息，让所有客户端生成纯视觉的子弹特效
@@ -130,8 +138,112 @@ public class GameRoomService {
         shot.put("dx", dx); shot.put("dy", dy);
         shot.put("range", range);
         shot.put("srvTS", now);
+        shot.put("weaponType", weaponType);
         sessionManager.broadcast(shot.toString());
 
+    }
+
+    public void handleSupplyPickup(WebSocketSession session, JsonNode root) {
+        Integer userId = (Integer) session.getAttributes().get("userId");
+        if (userId == null) return;
+        long dropId = root.path("dropId").asLong();
+        SupplyDrop drop = supplyDropManager.removeDrop(dropId);
+        if (drop != null) {
+            String dropType = drop.getType();
+            UserProfile pickerProfile = userProfileMapper.selectById(userId);
+            String pickerNickname = (pickerProfile != null) ? pickerProfile.getNickname() : "一位玩家";
+
+            switch (dropType) {
+                case "HEALTH_PACK":
+                    playerStateManager.applyHeal(userId, 50);
+                    int newHp = playerStateManager.getHp(userId);
+                    ObjectNode healthUpdateMsg = mapper.createObjectNode();
+                    healthUpdateMsg.put("type", "health_update");
+                    healthUpdateMsg.put("userId", userId);
+                    healthUpdateMsg.put("hp", newHp);
+                    sessionManager.broadcast(healthUpdateMsg.toString());
+                    break;
+
+                case "BOMB":
+                    // 立即对拾取者造成15点伤害
+                    GameRoomService.DamageResult res = playerStateManager.applyDamage(userId, userId, 15);
+
+                    ObjectNode dmgMsg = mapper.createObjectNode();
+                    dmgMsg.put("type", "damage");
+                    dmgMsg.put("attacker", userId); // 自己炸自己
+                    dmgMsg.put("victim", userId);
+                    dmgMsg.put("damage", 15);
+                    dmgMsg.put("hp", res.hp);
+                    dmgMsg.put("dead", res.dead);
+                    dmgMsg.put("kx", 0); // 道具爆炸通常没有击退
+                    dmgMsg.put("ky", 0);
+                    dmgMsg.put("srvTS", System.currentTimeMillis());
+                    sessionManager.broadcast(dmgMsg.toString());
+
+                    // 广播消息，让客户端播放爆炸特效
+                    ObjectNode bombMsg = mapper.createObjectNode();
+                    bombMsg.put("type", "player_bombed");
+                    bombMsg.put("userId", userId);
+                    sessionManager.broadcast(bombMsg.toString()); // 这个消息依然需要
+                    break;
+                case "POISON":
+                    // 让玩家中毒，持续10秒
+                    playerStateManager.applyPoison(userId, 10000);
+                    // 广播消息，让客户端播放中毒特效
+                    ObjectNode poisonMsg = mapper.createObjectNode();
+                    poisonMsg.put("type", "player_poisoned");
+                    poisonMsg.put("userId", userId);
+                    poisonMsg.put("duration", 10000); // 告诉客户端持续时间
+                    sessionManager.broadcast(poisonMsg.toString());
+                    break;
+
+                default: // 默认为武器
+                    playerStateManager.setWeapon(userId, dropType);
+                    ObjectNode weaponEquipMsg = mapper.createObjectNode();
+                    weaponEquipMsg.put("type", "weapon_equip");
+                    weaponEquipMsg.put("userId", userId);
+                    weaponEquipMsg.put("weaponType", dropType);
+                    sessionManager.broadcast(weaponEquipMsg.toString());
+                    break;
+            }
+//
+//            if ("HEALTH_PACK".equals(dropType)) {
+//                playerStateManager.applyHeal(userId, 50);
+//
+//                // 广播血量更新消息 (这个逻辑保持不变)
+//                int newHp = playerStateManager.getHp(userId);
+//                ObjectNode healthUpdateMsg = mapper.createObjectNode();
+//                healthUpdateMsg.put("type", "health_update");
+//                healthUpdateMsg.put("userId", userId);
+//                healthUpdateMsg.put("hp", newHp);
+//                sessionManager.broadcast(healthUpdateMsg.toString());
+//
+//            } else { // 如果不是血包，那就是武器
+//                // 1. 在服务器上更新玩家的当前武器状态
+//                playerStateManager.setWeapon(userId, dropType);
+//
+//                // 2. 广播一个新的消息，通知所有客户端该玩家已切换武器
+//                ObjectNode weaponEquipMsg = mapper.createObjectNode();
+//                weaponEquipMsg.put("type", "weapon_equip");
+//                weaponEquipMsg.put("userId", userId);
+//                weaponEquipMsg.put("weaponType", dropType);
+//                sessionManager.broadcast(weaponEquipMsg.toString());
+//            }
+
+            // 广播一个全局的拾取通知
+            ObjectNode pickupNotification = mapper.createObjectNode();
+            pickupNotification.put("type", "pickup_notification");
+            pickupNotification.put("pickerNickname", pickerNickname);
+            pickupNotification.put("itemType", dropType);
+            sessionManager.broadcast(pickupNotification.toString());
+
+            // 统一广播移除消息
+            ObjectNode removeMsg = mapper.createObjectNode();
+            removeMsg.put("type", "supply_removed");
+            removeMsg.put("dropId", dropId);
+            sessionManager.broadcast(removeMsg.toString());
+        }
+        // 如果 drop 为 null，说明这个物品已经被别人抢先了，服务器不做任何事。
     }
 
     public void handleLeave(WebSocketSession session) {
