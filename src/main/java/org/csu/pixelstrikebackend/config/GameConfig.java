@@ -13,7 +13,6 @@ public class GameConfig {
     private Rules rules = new Rules();
     private Player player = new Player();
     private Physics physics = new Physics();
-    private Weapon weapon = new Weapon();
     private Engine engine = new Engine();
 
     @Data
@@ -30,22 +29,16 @@ public class GameConfig {
 
     @Data
     public static class Player {
-        private int maxHealth; // 最大生命值
-        private int initialAmmo; // 初始弹药
-        private long respawnTimeMs; // 复活时间
-        private double height; // 玩家高度
+        private int maxHealth;
+        private long respawnTimeMs;
     }
 
     @Data
     public static class Physics {
-        private double gravity; // 重力
-        private double groundY; // 地面Y坐标
-        private double deathZoneY; // 死亡区域Y坐标
-    }
-    
-    @Data
-    public static class Weapon {
-        private int damage; // 武器伤害
+        private double mapW;
+        private double mapH;
+        private double groundY;
+        private double deathZoneY;
     }
 
     @Data

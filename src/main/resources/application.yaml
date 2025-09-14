@@ -57,10 +57,9 @@ game:
     respawn-time-ms: 3000 # 复活时间 (3秒)
     height: 40.0 # 玩家高度，用于命中判定
   physics:
-    gravity: 0.8 # 重力加速度
-    ground-y: 500.0 # 地面Y坐标
-    death-zone-y: 1200.0 # 掉落死亡区域的Y坐标
-  weapon:
-    damage: 25 # 武器伤害
+    map-w: 4620.0 # [新增] 地图宽度
+    map-h: 3030.0 # [新增] 地图高度
+    ground-y: 2819.0 # [修正] 地面Y坐标 (3030 - 211)
+    death-zone-y: 3200.0 # 掉落死亡区域的Y坐标 (应大于地图高度)
   engine:
     tick-rate-ms: 16 # 游戏服务器的Tick频率 (ms), 16ms ≈ 62.5Hz
