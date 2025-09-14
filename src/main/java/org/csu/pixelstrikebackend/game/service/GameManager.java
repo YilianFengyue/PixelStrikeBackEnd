@@ -2,8 +2,10 @@ package org.csu.pixelstrikebackend.game.service;
 
 import lombok.Getter;
 import org.csu.pixelstrikebackend.game.GameLobbyBridge;
+import org.csu.pixelstrikebackend.lobby.entity.Match;
 import org.csu.pixelstrikebackend.lobby.entity.MatchParticipant;
 import org.csu.pixelstrikebackend.lobby.enums.UserStatus;
+import org.csu.pixelstrikebackend.lobby.mapper.MatchMapper;
 import org.csu.pixelstrikebackend.lobby.service.MatchService;
 import org.csu.pixelstrikebackend.lobby.service.OnlineUserService;
 import org.csu.pixelstrikebackend.lobby.service.PlayerSessionService;
@@ -23,6 +25,7 @@ public class GameManager implements GameLobbyBridge {
     private final MatchService matchService;
     @Autowired private PlayerSessionService playerSessionService;
     @Autowired private OnlineUserService onlineUserService;
+    @Autowired private MatchMapper matchMapper;
 
     @Getter
     private final Map<Long, ActiveGame> activeGames = new ConcurrentHashMap<>();
@@ -32,7 +35,9 @@ public class GameManager implements GameLobbyBridge {
         this.gameRoomService = gameRoomService;
         this.matchService = matchService;
     }
-
+    public Match getMatchInfo(Long gameId) {
+        return matchMapper.selectById(gameId);
+    }
     @Override
     public void onMatchSuccess(Long gameId, Map<Integer, Integer> playerCharacterSelections) {
         List<Integer> playerIds = new ArrayList<>(playerCharacterSelections.keySet());

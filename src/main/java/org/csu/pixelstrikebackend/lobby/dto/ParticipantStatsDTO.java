@@ -7,7 +7,7 @@ public class ParticipantStatsDTO {
     private Integer userId;
     private String nickname;
     private Integer kills;
-    private Integer characterId;
+    private String characterName;
     private Integer deaths;
     private Integer ranking;
 }

@@ -11,5 +11,6 @@ public class MatchHistoryDTO {
     private String mapName;
     private LocalDateTime startTime;
     private Integer ranking; // 玩家在该局的排名
+    private LocalDateTime endTime; // 【新增】结束时间字段
     private Integer characterId;// 玩家在该局使用的角色
 }

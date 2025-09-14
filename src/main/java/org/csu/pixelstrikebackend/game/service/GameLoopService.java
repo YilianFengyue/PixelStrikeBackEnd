@@ -8,7 +8,12 @@ import jakarta.annotation.PreDestroy;
 import org.csu.pixelstrikebackend.config.GameConfig;
 import org.csu.pixelstrikebackend.game.geom.HitMath;
 import org.csu.pixelstrikebackend.game.model.ServerProjectile;
+import org.csu.pixelstrikebackend.lobby.entity.GameMap;
+import org.csu.pixelstrikebackend.lobby.entity.Match;
 import org.csu.pixelstrikebackend.lobby.entity.MatchParticipant;
+import org.csu.pixelstrikebackend.lobby.mapper.CharacterMapper;
+import org.csu.pixelstrikebackend.lobby.mapper.MapMapper;
+import org.csu.pixelstrikebackend.lobby.mapper.UserProfileMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -27,7 +32,10 @@ public class GameLoopService {
     @Autowired private GameSessionManager gameSessionManager;
     @Autowired private GameManager gameManager;
     @Autowired private ProjectileManager projectileManager;
-    
+    @Autowired private MapMapper mapMapper;
+    @Autowired private CharacterMapper characterMapper;
+    @Autowired private UserProfileMapper userProfileMapper;
+
     private ScheduledExecutorService gameLoopExecutor;
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -249,12 +257,47 @@ public class GameLoopService {
         // 3. 通知 GameManager 将结果上报给大厅模块
         gameManager.onGameConcluded(game.gameId, results);
 
-        // 4. 向所有客户端广播游戏结束的消息
+        // 4. 查询本局对局的元数据（地图名、模式等）
+        Match matchInfo = gameManager.getMatchInfo(game.gameId);
+        GameMap mapInfo = null;
+        if (matchInfo != null) {
+            mapInfo = mapMapper.selectById(matchInfo.getMapId());
+        }
+// 5. 准备一个与 MatchDetailDTO 结构类似的 Map 用于发送
+        Map<String, Object> detailedResults = new HashMap<>();
+        detailedResults.put("matchId", game.gameId);
+        detailedResults.put("gameMode", matchInfo != null ? matchInfo.getGameMode() : "未知模式");
+        detailedResults.put("mapName", mapInfo != null ? mapInfo.getName() : "未知地图");
+        detailedResults.put("startTime", matchInfo != null ? matchInfo.getStartTime().toString() : "");
+        detailedResults.put("endTime", java.time.LocalDateTime.now().toString()); // 结束时间用当前时间
+
+        // 6. 转换玩家战绩列表，加入昵称和角色名
+        List<Integer> userIds = results.stream().map(MatchParticipant::getUserId).collect(java.util.stream.Collectors.toList());
+        Map<Integer, org.csu.pixelstrikebackend.lobby.entity.UserProfile> userProfileMap = userProfileMapper.selectBatchIds(userIds).stream()
+                .collect(java.util.stream.Collectors.toMap(org.csu.pixelstrikebackend.lobby.entity.UserProfile::getUserId, up -> up));
+
+        List<Integer> characterIds = results.stream().map(MatchParticipant::getCharacterId).distinct().collect(java.util.stream.Collectors.toList());
+        Map<Integer, String> characterMap = characterMapper.selectBatchIds(characterIds).stream()
+                .collect(java.util.stream.Collectors.toMap(org.csu.pixelstrikebackend.lobby.entity.GameCharacter::getId, org.csu.pixelstrikebackend.lobby.entity.GameCharacter::getName));
+
+        List<Map<String, Object>> participantsForJson = new ArrayList<>();
+        for (MatchParticipant p : results) {
+            Map<String, Object> participantMap = new HashMap<>();
+            participantMap.put("userId", p.getUserId());
+            participantMap.put("nickname", userProfileMap.getOrDefault(p.getUserId(), new org.csu.pixelstrikebackend.lobby.entity.UserProfile()).getNickname());
+            participantMap.put("kills", p.getKills());
+            participantMap.put("deaths", p.getDeaths());
+            participantMap.put("ranking", p.getRanking());
+            participantMap.put("characterName", characterMap.getOrDefault(p.getCharacterId(), "未知角色"));
+            participantsForJson.add(participantMap);
+        }
+        detailedResults.put("participants", participantsForJson);
+
+        // 7. 向所有客户端广播游戏结束和详细战绩的消息
         ObjectNode gameOverMsg = mapper.createObjectNode();
-        gameOverMsg.put("type", "game_over");
-        gameOverMsg.put("gameId", game.gameId);
-        // 你可以在这里附带上最终的排名结果
-        // gameOverMsg.set("results", mapper.valueToTree(results));
+        gameOverMsg.put("type", "game_over"); // 保持 game_over 类型，让客户端先弹窗
+        // 将详细战绩作为一个内嵌的 JSON 对象发送
+        gameOverMsg.set("results", mapper.valueToTree(detailedResults));
 
         gameSessionManager.broadcast(gameOverMsg.toString());
     }

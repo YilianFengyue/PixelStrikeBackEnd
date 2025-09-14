@@ -6,13 +6,11 @@ import org.csu.pixelstrikebackend.lobby.dto.MatchDetailDTO;
 import org.csu.pixelstrikebackend.lobby.dto.MatchHistoryDTO;
 import org.csu.pixelstrikebackend.lobby.dto.ParticipantStatsDTO;
 import org.csu.pixelstrikebackend.lobby.entity.GameMap;
+import org.csu.pixelstrikebackend.lobby.entity.GameCharacter;
 import org.csu.pixelstrikebackend.lobby.entity.Match;
 import org.csu.pixelstrikebackend.lobby.entity.MatchParticipant;
 import org.csu.pixelstrikebackend.lobby.entity.UserProfile;
-import org.csu.pixelstrikebackend.lobby.mapper.MapMapper;
-import org.csu.pixelstrikebackend.lobby.mapper.MatchMapper;
-import org.csu.pixelstrikebackend.lobby.mapper.MatchParticipantMapper;
-import org.csu.pixelstrikebackend.lobby.mapper.UserProfileMapper;
+import org.csu.pixelstrikebackend.lobby.mapper.*;
 import org.csu.pixelstrikebackend.lobby.service.MatchHistoryService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -32,7 +30,8 @@ public class MatchHistoryServiceImpl implements MatchHistoryService {
     private UserProfileMapper userProfileMapper;
     @Autowired
     private MapMapper mapMapper;
-
+    @Autowired
+    private CharacterMapper characterMapper;
     @Override
     public CommonResponse<?> getMatchHistory(Integer userId) {
         // 1. 查找该用户参与的所有对局记录
@@ -66,9 +65,11 @@ public class MatchHistoryServiceImpl implements MatchHistoryService {
             dto.setMapName(map.getName());
             dto.setCharacterId(p.getCharacterId());
             dto.setStartTime(match.getStartTime());
+            dto.setEndTime(match.getEndTime()); // 【新增】填充 endTime 字段
             dto.setRanking(p.getRanking());
             return dto;
         }).collect(Collectors.toList());
+        historyList.sort(java.util.Comparator.comparing(MatchHistoryDTO::getStartTime).reversed());
 
         return CommonResponse.createForSuccess("获取成功", historyList);
     }
@@ -92,7 +93,12 @@ public class MatchHistoryServiceImpl implements MatchHistoryService {
         // 4. 一次性查询所有参与者的个人信息 (昵称等)
         Map<Integer, UserProfile> userProfileMap = userProfileMapper.selectBatchIds(userIds).stream()
                 .collect(Collectors.toMap(UserProfile::getUserId, up -> up));
-
+        List<Integer> characterIds = participants.stream()
+                .map(MatchParticipant::getCharacterId)
+                .distinct()
+                .collect(Collectors.toList());
+        Map<Integer, String> characterMap = characterMapper.selectBatchIds(characterIds).stream()
+                .collect(Collectors.toMap(GameCharacter::getId, GameCharacter::getName));
         // 5. 组装每个参与者的战绩DTO
         List<ParticipantStatsDTO> participantStats = participants.stream().map(p -> {
             UserProfile profile = userProfileMap.get(p.getUserId());
@@ -100,7 +106,7 @@ public class MatchHistoryServiceImpl implements MatchHistoryService {
             statsDTO.setUserId(p.getUserId());
             statsDTO.setNickname(profile != null ? profile.getNickname() : "未知玩家");
             statsDTO.setKills(p.getKills());
-            statsDTO.setCharacterId(p.getCharacterId());
+            statsDTO.setCharacterName(characterMap.getOrDefault(p.getCharacterId(), "未知角色"));
             statsDTO.setDeaths(p.getDeaths());
             statsDTO.setRanking(p.getRanking());
             return statsDTO;
