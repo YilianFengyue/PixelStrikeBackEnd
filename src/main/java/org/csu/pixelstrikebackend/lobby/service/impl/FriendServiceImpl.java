@@ -176,7 +176,19 @@ public class FriendServiceImpl implements FriendService {
                 .or(wrapper -> wrapper.eq("sender_id", friendId).eq("addr_id", userId));
         queryWrapper.eq("status", "accepted");
         int result = friendMapper.delete(queryWrapper);
-        return result > 0 ? CommonResponse.createForSuccessMessage("好友已删除") : CommonResponse.createForError("删除失败，对方不是你的好友");
+        if (result > 0) {
+            // 【新增】如果删除成功，则通知被删除的好友
+            if (onlineUserService.isUserOnline(friendId)) {
+                Map<String, Object> notification = Map.of(
+                        "type", "friend_removed", // 定义一个新的消息类型
+                        "removerId", userId      // 告诉对方是谁删除了他
+                );
+                webSocketSessionManager.sendMessageToUser(friendId, notification);
+            }
+            return CommonResponse.createForSuccessMessage("好友已删除");
+        } else {
+            return CommonResponse.createForError("删除失败，对方不是你的好友");
+        }
     }
 
 
