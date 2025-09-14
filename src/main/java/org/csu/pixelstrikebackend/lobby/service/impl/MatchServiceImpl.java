@@ -40,7 +40,6 @@ public class MatchServiceImpl implements MatchService {
         match.setId(gameId);
         match.setEndTime(LocalDateTime.now());
         matchMapper.updateById(match);
-
         for (MatchParticipant participant : results) {
             participant.setMatchId(gameId);
             matchParticipantMapper.insert(participant);

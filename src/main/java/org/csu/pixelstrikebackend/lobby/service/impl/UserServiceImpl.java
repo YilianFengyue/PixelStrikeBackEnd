@@ -5,11 +5,13 @@ import org.csu.pixelstrikebackend.lobby.common.CommonResponse;
 import org.csu.pixelstrikebackend.lobby.dto.ResetPasswordRequest;
 import org.csu.pixelstrikebackend.lobby.entity.User;
 import org.csu.pixelstrikebackend.lobby.entity.UserProfile;
+import org.csu.pixelstrikebackend.lobby.mapper.FriendMapper;
 import org.csu.pixelstrikebackend.lobby.mapper.UserMapper;
 import org.csu.pixelstrikebackend.lobby.mapper.UserProfileMapper;
 import org.csu.pixelstrikebackend.lobby.service.FileStorageService;
 import org.csu.pixelstrikebackend.lobby.service.OnlineUserService;
 import org.csu.pixelstrikebackend.lobby.service.UserService;
+import org.csu.pixelstrikebackend.lobby.websocket.WebSocketSessionManager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -18,6 +20,10 @@ import org.springframework.web.multipart.MultipartFile;
 
 
 import java.nio.file.Paths;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 @Service("userService")
 public class UserServiceImpl implements UserService {
 
@@ -31,7 +37,12 @@ public class UserServiceImpl implements UserService {
 
     @Autowired
     private FileStorageService fileStorageService; // 注入文件存储服务
+    // ... (其他 @Autowired 字段)
+    @Autowired
+    private FriendMapper friendMapper;
 
+    @Autowired
+    private WebSocketSessionManager webSocketSessionManager;
     @Override
     public CommonResponse<?> resetPassword(ResetPasswordRequest request) {
         // 1. 根据用户名查找用户
@@ -64,6 +75,7 @@ public class UserServiceImpl implements UserService {
         }
         userProfile.setNickname(newNickname);
         userProfileMapper.updateById(userProfile);
+        broadcastProfileUpdateToFriends(userProfile);
         return CommonResponse.createForSuccess("昵称更新成功", userProfile);
     }
 
@@ -84,6 +96,7 @@ public class UserServiceImpl implements UserService {
             // 3. 更新数据库
             userProfile.setAvatarUrl(fullUrl);
             userProfileMapper.updateById(userProfile);
+            broadcastProfileUpdateToFriends(userProfile);
 
             // 4. 返回成功响应
             return CommonResponse.createForSuccess("头像上传成功", userProfile);
@@ -118,6 +131,30 @@ public class UserServiceImpl implements UserService {
         }
     }
 
+    /**
+     * 辅助方法，用于向用户的所有在线好友广播个人资料更新。
+     * @param updatedProfile 包含最新信息的 UserProfile 对象
+     */
+    private void broadcastProfileUpdateToFriends(UserProfile updatedProfile) {
+        // 1. 查找该用户的所有好友
+        List<UserProfile> friends = friendMapper.selectFriendsProfiles(updatedProfile.getUserId());
+        if (friends.isEmpty()) {
+            return; // 没有好友，无需广播
+        }
 
+        // 2. 构建通知消息体
+        Map<String, Object> notification = new HashMap<>();
+        notification.put("type", "profile_update"); // 新的消息类型
+        notification.put("userId", updatedProfile.getUserId());
+        notification.put("newNickname", updatedProfile.getNickname());
+        notification.put("newAvatarUrl", updatedProfile.getAvatarUrl());
+
+        // 3. 遍历好友，只向在线的好友发送 WebSocket 消息
+        for (UserProfile friend : friends) {
+            if (onlineUserService.isUserOnline(friend.getUserId())) {
+                webSocketSessionManager.sendMessageToUser(friend.getUserId(), notification);
+            }
+        }
+    }
 
 }

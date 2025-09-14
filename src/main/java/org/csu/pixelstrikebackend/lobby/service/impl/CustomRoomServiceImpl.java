@@ -318,6 +318,12 @@ public class CustomRoomServiceImpl implements CustomRoomService {
             startGameMessage.put("mapName", map.getName());
         }
         broadcastToRoom(roomId, startGameMessage);
+        // 【新增部分】游戏成功开始后，立即清理并解散房间
+        // 遍历房间内的所有玩家，将他们从 playerToRoomMap 中移除
+        room.getPlayers().forEach(playerToRoomMap::remove);
+        // 从 activeRooms 中移除该房间，完成销毁
+        activeRooms.remove(roomId);
+        System.out.println("游戏 " + gameId + " 已开始，房间 " + roomId + " 已自动解散。");
         return CommonResponse.createForSuccess("游戏开始", gameId);
     }
 
