@@ -149,3 +149,12 @@ CREATE TABLE `weapons`  (
 ) ENGINE = InnoDB AUTO_INCREMENT = 4 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '游戏内武器定义表' ROW_FORMAT = Dynamic;
 
 SET FOREIGN_KEY_CHECKS = 1;
+
+-- ----------------------------
+-- Records of characters
+-- ----------------------------
+INSERT INTO `characters` VALUES (1, 'Ash', '均衡型角色', 100, 7.0, 15.0, 1);
+INSERT INTO `characters` VALUES (2, 'Shu', '敏捷型角色', 90, 8.0, 16.0, 2);
+INSERT INTO `characters` VALUES (3, 'Angel Neng', '火力型角色', 110, 6.5, 14.0, 3);
+INSERT INTO `characters` VALUES (4, 'Blue Archive Marthe', '战术型角色', 100, 7.0, 15.0, 1);
+
