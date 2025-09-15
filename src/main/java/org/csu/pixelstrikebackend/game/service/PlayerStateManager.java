@@ -25,7 +25,7 @@ public class PlayerStateManager {
     @Getter
     private final Map<Integer, Long> poisonedPlayers = new ConcurrentHashMap<>();
 
-    // --- 快照与序列号 ---
+    // --- 【新增】快照与序列号 (来自 fxdemoBakcend) ---
     private static final long SNAPSHOT_KEEP_MS = 2000;
     private final Map<Integer, Deque<GameRoomService.StateSnapshot>> snapshotsByPlayer = new ConcurrentHashMap<>();
     private final Map<Integer, Long> lastSeqByPlayer = new ConcurrentHashMap<>();
@@ -40,10 +40,11 @@ public class PlayerStateManager {
         deathTimestamps.remove(userId);
         killsByPlayer.put(userId, 0);
         deathsByPlayer.put(userId, 0);
-        weaponByPlayer.put(userId, "Pistol");
+        weaponByPlayer.put(userId, "Pistol"); // 默认武器
     }
 
     public GameRoomService.DamageResult applyDamage(int byId, int victimId, int amount) {
+        // 伤害不能为负，且不能伤害自己
         if (amount <= 0 || byId == victimId) return new GameRoomService.DamageResult(getHp(victimId), isDead(victimId));
 
         int hp = getHp(victimId);
@@ -64,16 +65,18 @@ public class PlayerStateManager {
         hpByPlayer.put(userId, MAX_HP);
         deadSet.remove(userId);
         deathTimestamps.remove(userId);
-        lastSeqByPlayer.remove(userId);
+        lastSeqByPlayer.remove(userId); // 重置序列号
     }
 
+    // --- 【新增】记录玩家状态快照 (来自 fxdemoBakcend) ---
     public void recordStateSnapshot(int playerId, long srvTS, long cliTS, double x, double y, double vx, double vy, boolean facing, boolean onGround) {
         Deque<GameRoomService.StateSnapshot> buf = snapshotsByPlayer.computeIfAbsent(playerId, k -> new ArrayDeque<>());
         synchronized (buf) {
             buf.addLast(new GameRoomService.StateSnapshot(srvTS, cliTS, x, y, vx, vy, facing, onGround));
+            // 清理过期的快照
             long min = srvTS - SNAPSHOT_KEEP_MS;
             while (!buf.isEmpty() && buf.peekFirst().srvTS < min) buf.removeFirst();
-            if (buf.size() > 600) buf.removeFirst();
+            if (buf.size() > 600) buf.removeFirst(); // 防止内存溢出
         }
     }
 
@@ -85,6 +88,7 @@ public class PlayerStateManager {
             deathsByPlayer.compute(victimId, (id, deaths) -> (deaths == null ? 0 : deaths) + 1);
         }
     }
+
     public Map<String, Integer> getStats(Integer userId) {
         return Map.of(
                 "kills", killsByPlayer.getOrDefault(userId, 0),
@@ -92,6 +96,7 @@ public class PlayerStateManager {
         );
     }
 
+    // --- 【新增】在特定服务器时间点插值计算玩家位置 (来自 fxdemoBakcend) ---
     public Optional<GameRoomService.StateSnapshot> interpolateAt(int playerId, long targetSrvTS) {
         Deque<GameRoomService.StateSnapshot> buf = snapshotsByPlayer.get(playerId);
         if (buf == null || buf.isEmpty()) return Optional.empty();
@@ -116,10 +121,11 @@ public class PlayerStateManager {
         }
     }
 
+    // --- 【新增】验证客户端发来的状态更新序列号，防止乱序 (来自 fxdemoBakcend) ---
     public boolean acceptStateSeq(int playerId, long seq) {
-        if (seq <= 0) return true;
+        if (seq <= 0) return true; // 兼容没有seq的老客户端
         Long last = lastSeqByPlayer.get(playerId);
-        if (last != null && seq <= last) return false;
+        if (last != null && seq <= last) return false; // 如果新序号不大于上一个，则拒绝
         lastSeqByPlayer.put(playerId, seq);
         return true;
     }
@@ -139,14 +145,12 @@ public class PlayerStateManager {
         int newHp = Math.min(MAX_HP, currentHp + amount);
         hpByPlayer.put(userId, newHp);
 
-        // (可选) 你可以广播一个 "player_healed" 消息，让客户端显示特效
-        // 这可以让所有玩家都看到有人回血了
-        // 示例:
-         ObjectNode healMsg = new ObjectMapper().createObjectNode();
-         healMsg.put("type", "player_healed");
-         healMsg.put("userId", userId);
-         healMsg.put("newHp", newHp);
-         gameSessionManager.broadcast(healMsg.toString());
+        // 广播回血事件
+        ObjectNode healMsg = new ObjectMapper().createObjectNode();
+        healMsg.put("type", "player_healed");
+        healMsg.put("userId", userId);
+        healMsg.put("newHp", newHp);
+        gameSessionManager.broadcast(healMsg.toString());
     }
 
     public void setWeapon(Integer userId, String weaponType) {
