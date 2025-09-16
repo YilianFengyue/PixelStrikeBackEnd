@@ -50,22 +50,26 @@ public class ItemSpawnService {
             return;
         }
 
-        System.out.println("Item spawner triggered...");
+        for (Long gameId : gameManager.getActiveGames().keySet()) {
+            System.out.println("Item spawner triggered for game: " + gameId);
 
-        double[] point = spawnPoints.get(random.nextInt(spawnPoints.size()));
-        String dropType = supplyDropTypes.get(random.nextInt(supplyDropTypes.size()));
+            double[] point = spawnPoints.get(random.nextInt(spawnPoints.size()));
+            String dropType = supplyDropTypes.get(random.nextInt(supplyDropTypes.size()));
 
-        SupplyDrop newDrop = new SupplyDrop(dropType, point[0], point[1]);
-        supplyDropManager.addDrop(newDrop);
+            // ★ 修改点: 构造 SupplyDrop 时传入 gameId ★
+            SupplyDrop newDrop = new SupplyDrop(dropType, point[0], point[1], gameId);
+            supplyDropManager.addDrop(newDrop);
 
-        ObjectNode spawnMsg = mapper.createObjectNode();
-        spawnMsg.put("type", "supply_spawn");
-        spawnMsg.put("dropId", newDrop.getId());
-        spawnMsg.put("dropType", newDrop.getType());
-        spawnMsg.put("x", newDrop.getX());
-        spawnMsg.put("y", newDrop.getY());
+            ObjectNode spawnMsg = mapper.createObjectNode();
+            spawnMsg.put("type", "supply_spawn");
+            spawnMsg.put("dropId", newDrop.getId());
+            spawnMsg.put("dropType", newDrop.getType());
+            spawnMsg.put("x", newDrop.getX());
+            spawnMsg.put("y", newDrop.getY());
 
-        sessionManager.broadcast(spawnMsg.toString());
-        System.out.println("Spawned " + newDrop.getType() + " at (" + newDrop.getX() + ", " + newDrop.getY() + ")");
+            // ★ 修改点: 只向当前游戏广播 ★
+            sessionManager.broadcast(gameId, spawnMsg.toString());
+            System.out.println("Spawned " + newDrop.getType() + " for game " + gameId);
+        }
     }
 }

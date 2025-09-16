@@ -13,7 +13,7 @@ public class CustomRoom {
     private final String roomId;
     @Setter
     private Integer mapId; // **新增：房间地图ID**
-    private final int maxSize = 2;
+    private final int maxSize = 4;
     private final Set<Integer> players = ConcurrentHashMap.newKeySet();
     // **核心改动：用 Map 存储玩家及其选择的角色 (Key: userId, Value: characterId)**
     private final Map<Integer, Integer> playerCharacterSelections = new ConcurrentHashMap<>();

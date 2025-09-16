@@ -44,27 +44,39 @@ public class GameRoomService {
         }
     }
 
+    private Long getGameId(WebSocketSession session) {
+        return (Long) session.getAttributes().get("gameId");
+    }
+
     public void addSession(WebSocketSession s) {
-        sessionManager.addSession(s);
-        clientStateService.registerSession(s);
+        Long gameId = getGameId(s);
+        if (gameId != null) {
+            // ★ 修改点: 调用 addSession 时传入 gameId ★
+            sessionManager.addSession(gameId, s);
+            clientStateService.registerSession(s);
+        }
     }
 
     public void removeSession(WebSocketSession s) {
+        Long gameId = getGameId(s);
         Integer userId = (Integer) s.getAttributes().get("userId");
-        if (userId != null) {
-            // 这个逻辑现在主要处理玩家在游戏中途意外断线的情况
+        if (userId != null && gameId != null) {
             if(playerSessionService.isPlayerInGame(userId)){
                 playerSessionService.removePlayerFromGame(userId);
                 onlineUserService.updateUserStatus(userId, UserStatus.ONLINE);
                 System.out.println("Cleaned up session for unexpectedly disconnected user: " + userId);
             }
         }
-        sessionManager.removeSession(s);
+        if (gameId != null) {
+            // ★ 修改点: 调用 removeSession 时传入 gameId ★
+            sessionManager.removeSession(gameId, s);
+        }
         clientStateService.unregisterSession(s);
     }
 
     public void handleJoin(WebSocketSession session) {
         Integer userId = (Integer) session.getAttributes().get("userId");
+        Long gameId = getGameId(session);
         if (userId == null) return;
 
         playerStateManager.initializePlayer(userId);
@@ -79,11 +91,12 @@ public class GameRoomService {
         joined.put("type", "join_broadcast");
         joined.put("id", userId);
         joined.put("name", "Player " + userId);
-        sessionManager.broadcastToOthers(session, joined.toString());
+        sessionManager.broadcastToOthers(gameId, session, joined.toString());
     }
 
     public void handleState(WebSocketSession session, JsonNode root) {
         Integer userId = (Integer) session.getAttributes().get("userId");
+        Long gameId = getGameId(session);
         if (userId == null) return;
 
         long now = System.currentTimeMillis();
@@ -108,11 +121,12 @@ public class GameRoomService {
         ObjectNode stateToBroadcast = (ObjectNode) root.deepCopy();
         stateToBroadcast.put("id", userId);
         stateToBroadcast.put("serverTime", now);
-        sessionManager.broadcastToOthers(session, stateToBroadcast.toString());
+        sessionManager.broadcastToOthers(gameId, session, stateToBroadcast.toString());
     }
 
     public void handleShot(WebSocketSession session, JsonNode root) {
         Integer shooterId = (Integer) session.getAttributes().get("userId");
+        Long gameId = getGameId(session); // 获取 gameId
         if (shooterId == null) return;
 
         double ox = root.path("ox").asDouble(), oy = root.path("oy").asDouble();
@@ -123,8 +137,7 @@ public class GameRoomService {
         String weaponType = root.path("weaponType").asText("Pistol"); // 提供一个默认值
         ServerProjectile serverProjectile = new ServerProjectile(
                 shooterId, ox, oy, dx, dy, BULLET_SPEED, range,
-                damage, // 传入真实的伤害
-                weaponType // 传入真实的武器类型
+                damage, weaponType, gameId
         );
         projectileManager.addProjectile(serverProjectile);
 
@@ -139,12 +152,13 @@ public class GameRoomService {
         shot.put("range", range);
         shot.put("srvTS", now);
         shot.put("weaponType", weaponType);
-        sessionManager.broadcast(shot.toString());
+        sessionManager.broadcast(gameId, shot.toString());
 
     }
 
     public void handleSupplyPickup(WebSocketSession session, JsonNode root) {
         Integer userId = (Integer) session.getAttributes().get("userId");
+        Long gameId = getGameId(session);
         if (userId == null) return;
         long dropId = root.path("dropId").asLong();
         SupplyDrop drop = supplyDropManager.removeDrop(dropId);
@@ -161,7 +175,7 @@ public class GameRoomService {
                     healthUpdateMsg.put("type", "health_update");
                     healthUpdateMsg.put("userId", userId);
                     healthUpdateMsg.put("hp", newHp);
-                    sessionManager.broadcast(healthUpdateMsg.toString());
+                    sessionManager.broadcast(gameId,healthUpdateMsg.toString());
                     break;
 
                 case "BOMB":
@@ -178,13 +192,13 @@ public class GameRoomService {
                     dmgMsg.put("kx", 0); // 道具爆炸通常没有击退
                     dmgMsg.put("ky", 0);
                     dmgMsg.put("srvTS", System.currentTimeMillis());
-                    sessionManager.broadcast(dmgMsg.toString());
+                    sessionManager.broadcast(gameId,dmgMsg.toString());
 
                     // 广播消息，让客户端播放爆炸特效
                     ObjectNode bombMsg = mapper.createObjectNode();
                     bombMsg.put("type", "player_bombed");
                     bombMsg.put("userId", userId);
-                    sessionManager.broadcast(bombMsg.toString()); // 这个消息依然需要
+                    sessionManager.broadcast(gameId,bombMsg.toString()); // 这个消息依然需要
                     break;
                 case "POISON":
                     // 让玩家中毒，持续10秒
@@ -194,7 +208,7 @@ public class GameRoomService {
                     poisonMsg.put("type", "player_poisoned");
                     poisonMsg.put("userId", userId);
                     poisonMsg.put("duration", 10000); // 告诉客户端持续时间
-                    sessionManager.broadcast(poisonMsg.toString());
+                    sessionManager.broadcast(gameId,poisonMsg.toString());
                     break;
 
                 default: // 默认为武器
@@ -203,7 +217,7 @@ public class GameRoomService {
                     weaponEquipMsg.put("type", "weapon_equip");
                     weaponEquipMsg.put("userId", userId);
                     weaponEquipMsg.put("weaponType", dropType);
-                    sessionManager.broadcast(weaponEquipMsg.toString());
+                    sessionManager.broadcast(gameId,weaponEquipMsg.toString());
                     break;
             }
 //
@@ -235,24 +249,25 @@ public class GameRoomService {
             pickupNotification.put("type", "pickup_notification");
             pickupNotification.put("pickerNickname", pickerNickname);
             pickupNotification.put("itemType", dropType);
-            sessionManager.broadcast(pickupNotification.toString());
+            sessionManager.broadcast(gameId,pickupNotification.toString());
 
             // 统一广播移除消息
             ObjectNode removeMsg = mapper.createObjectNode();
             removeMsg.put("type", "supply_removed");
             removeMsg.put("dropId", dropId);
-            sessionManager.broadcast(removeMsg.toString());
+            sessionManager.broadcast(gameId,removeMsg.toString());
         }
         // 如果 drop 为 null，说明这个物品已经被别人抢先了，服务器不做任何事。
     }
 
     public void handleLeave(WebSocketSession session) {
         Integer userId = (Integer) session.getAttributes().get("userId");
+        Long gameId = getGameId(session);
         if (userId != null) {
             ObjectNode leave = mapper.createObjectNode();
             leave.put("type", "leave");
             leave.put("id", userId);
-            sessionManager.broadcastToOthers(session, leave.toString());
+            sessionManager.broadcastToOthers(gameId, session, leave.toString());
             // 点击“返回大厅”按钮会触发此方法，最终会调用 removeSession，所以这里无需重复操作
         }
     }

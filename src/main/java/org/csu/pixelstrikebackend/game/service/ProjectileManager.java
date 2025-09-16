@@ -22,4 +22,8 @@ public class ProjectileManager {
     public List<ServerProjectile> getProjectiles() {
         return projectiles;
     }
+
+    public void cleanupProjectilesByGame(Long gameId) {
+        projectiles.removeIf(p -> p.getGameId().equals(gameId));
+    }
 }
