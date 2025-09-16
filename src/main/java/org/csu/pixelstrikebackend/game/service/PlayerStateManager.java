@@ -4,6 +4,7 @@ package org.csu.pixelstrikebackend.game.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.Getter;
+import org.csu.pixelstrikebackend.lobby.service.PlayerSessionService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import java.util.*;
@@ -22,6 +23,9 @@ public class PlayerStateManager {
     private final Map<Integer, Long> deathTimestamps = new ConcurrentHashMap<>();
     @Autowired
     private GameSessionManager gameSessionManager;
+    @Autowired
+    private PlayerSessionService playerSessionService;
+
     @Getter
     private final Map<Integer, Long> poisonedPlayers = new ConcurrentHashMap<>();
 
@@ -44,8 +48,9 @@ public class PlayerStateManager {
     }
 
     public GameRoomService.DamageResult applyDamage(int byId, int victimId, int amount) {
-        if (amount <= 0 || byId == victimId) return new GameRoomService.DamageResult(getHp(victimId), isDead(victimId));
-
+        if (amount <= 0 || byId == victimId) {
+            return new GameRoomService.DamageResult(getHp(victimId), isDead(victimId));
+        }
         int hp = getHp(victimId);
         if (hp <= 0) return new GameRoomService.DamageResult(0, true);
 
@@ -53,9 +58,11 @@ public class PlayerStateManager {
         hpByPlayer.put(victimId, hp);
         boolean dead = (hp == 0);
         if (dead) {
-            deadSet.add(victimId);
-            deathTimestamps.put(victimId, System.currentTimeMillis());
-            System.out.println("Player " + victimId + " died. Respawn timer started.");
+            if (!deathTimestamps.containsKey(victimId)) {
+                deadSet.add(victimId);
+                deathTimestamps.put(victimId, System.currentTimeMillis());
+                System.out.println("Player " + victimId + " died. Respawn timer started.");
+            }
         }
         return new GameRoomService.DamageResult(hp, dead);
     }
@@ -65,6 +72,18 @@ public class PlayerStateManager {
         deadSet.remove(userId);
         deathTimestamps.remove(userId);
         lastSeqByPlayer.remove(userId);
+    }
+
+    public void cleanupPlayerState(Integer userId) {
+        hpByPlayer.remove(userId);
+        weaponByPlayer.remove(userId);
+        deadSet.remove(userId);
+        deathTimestamps.remove(userId);
+        poisonedPlayers.remove(userId);
+        snapshotsByPlayer.remove(userId);
+        lastSeqByPlayer.remove(userId);
+        killsByPlayer.remove(userId);
+        deathsByPlayer.remove(userId);
     }
 
     public void recordStateSnapshot(int playerId, long srvTS, long cliTS, double x, double y, double vx, double vy, boolean facing, boolean onGround) {
@@ -146,7 +165,10 @@ public class PlayerStateManager {
          healMsg.put("type", "player_healed");
          healMsg.put("userId", userId);
          healMsg.put("newHp", newHp);
-         gameSessionManager.broadcast(healMsg.toString());
+        Long gameId = playerSessionService.getActiveGameId(userId);
+        if (gameId != null) {
+            gameSessionManager.broadcast(gameId, healMsg.toString());
+        }
     }
 
     public void setWeapon(Integer userId, String weaponType) {

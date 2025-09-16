@@ -14,6 +14,7 @@ import org.csu.pixelstrikebackend.lobby.entity.MatchParticipant;
 import org.csu.pixelstrikebackend.lobby.mapper.CharacterMapper;
 import org.csu.pixelstrikebackend.lobby.mapper.MapMapper;
 import org.csu.pixelstrikebackend.lobby.mapper.UserProfileMapper;
+import org.csu.pixelstrikebackend.lobby.service.PlayerSessionService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -35,7 +36,7 @@ public class GameLoopService {
     @Autowired private MapMapper mapMapper;
     @Autowired private CharacterMapper characterMapper;
     @Autowired private UserProfileMapper userProfileMapper;
-
+    @Autowired private PlayerSessionService playerSessionService;
     private ScheduledExecutorService gameLoopExecutor;
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -104,7 +105,10 @@ public class GameLoopService {
         dmg.put("kx", 0);
         dmg.put("ky", 0);
         dmg.put("srvTS", System.currentTimeMillis());
-        gameSessionManager.broadcast(dmg.toString());
+        Long gameId = playerSessionService.getActiveGameId(victimId);
+        if (gameId != null) {
+            gameSessionManager.broadcast(gameId, dmg.toString());
+        }
 
         // 如果玩家因此死亡，记录死亡事件（但没有击杀者）
         if (res.dead) {
@@ -118,10 +122,11 @@ public class GameLoopService {
         if (projectiles.isEmpty()) return;
 
         final double HB_OFF_X = 80.0, HB_OFF_Y = 20.0, HB_W = 86.0, HB_H = 160.0;
+        List<ServerProjectile> projectilesToRemove = new ArrayList<>();
 
         // 使用迭代器或复制列表以安全地移除元素
-        for (Iterator<ServerProjectile> iterator = projectiles.iterator(); iterator.hasNext(); ) {
-            ServerProjectile proj = iterator.next();
+        for (ServerProjectile proj : projectiles) {
+
             boolean shouldRemove = false;
 
             // --- 默认子弹/射线枪逻辑 ---
@@ -130,7 +135,12 @@ public class GameLoopService {
             proj.update(deltaTime);
             boolean hit = false;
 
-            for (Integer victimId : playerStateManager.getHpByPlayer().keySet()) {
+            GameManager.ActiveGame currentGame = gameManager.getActiveGames().get(proj.getGameId());
+            if (currentGame == null) {
+                projectilesToRemove.add(proj); // 游戏已结束，标记待移除
+                continue;
+            }
+            for (Integer victimId : currentGame.playerIds) {
                 if (victimId.equals(proj.getShooterId()) || playerStateManager.isDead(victimId)) {
                     continue;
                 }
@@ -154,14 +164,9 @@ public class GameLoopService {
             }
 
             if (hit || proj.isOutOfRange(proj.getX(), proj.getY())) {
-                shouldRemove = true;
+                projectilesToRemove.add(proj); // 旧代码是 iterator.remove()
             }
 
-
-            if (shouldRemove) {
-                // 从 projectileManager 中移除，而不是直接从列表移除
-                projectileManager.removeProjectile(proj);
-            }
         }
     }
 
@@ -188,7 +193,10 @@ public class GameLoopService {
         dmg.put("kx", kx);
         dmg.put("ky", ky);
         dmg.put("srvTS", System.currentTimeMillis());
-        gameSessionManager.broadcast(dmg.toString());
+        Long gameId = playerSessionService.getActiveGameId(projectile.getShooterId());
+        if (gameId != null) {
+            gameSessionManager.broadcast(gameId, dmg.toString());
+        }
     }
 
 
@@ -299,7 +307,7 @@ public class GameLoopService {
         // 将详细战绩作为一个内嵌的 JSON 对象发送
         gameOverMsg.set("results", mapper.valueToTree(detailedResults));
 
-        gameSessionManager.broadcast(gameOverMsg.toString());
+        gameSessionManager.broadcast(game.gameId, gameOverMsg.toString());
     }
     
     private void respawnPlayer(Integer userId) {
@@ -317,6 +325,9 @@ public class GameLoopService {
         respawnMsg.put("hp", gameConfig.getPlayer().getMaxHealth());
         respawnMsg.put("serverTime", System.currentTimeMillis());
 
-        gameSessionManager.broadcast(respawnMsg.toString());
+        Long gameId = playerSessionService.getActiveGameId(userId);
+        if (gameId != null) {
+            gameSessionManager.broadcast(gameId, respawnMsg.toString());
+        }
     }
 }

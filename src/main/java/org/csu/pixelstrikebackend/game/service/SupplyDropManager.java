@@ -23,7 +23,12 @@ public class SupplyDropManager {
     public Collection<SupplyDrop> getActiveDrops() {
         return activeDrops.values();
     }
-    
+
+    public void cleanupDropsByGame(Long gameId) {
+        // 遍历所有 activeDrops，移除 gameId 匹配的项
+        activeDrops.values().removeIf(drop -> gameId.equals(drop.getGameId()));
+    }
+
     public void clearAllDrops() {
         activeDrops.clear();
     }

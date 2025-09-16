@@ -386,6 +386,7 @@ public class CustomRoomServiceImpl implements CustomRoomService {
         dto.setRoomId(room.getRoomId());
         dto.setHostId(room.getHostId());
         dto.setPlayers(playerDTOs);
+        dto.setMaxSize(room.getMaxSize());
         dto.setRoomStatus(room.getStatus());
         if (map != null) {
             dto.setMapId(map.getId());

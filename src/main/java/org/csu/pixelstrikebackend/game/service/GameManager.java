@@ -26,7 +26,9 @@ public class GameManager implements GameLobbyBridge {
     @Autowired private PlayerSessionService playerSessionService;
     @Autowired private OnlineUserService onlineUserService;
     @Autowired private MatchMapper matchMapper;
-
+    @Autowired private ProjectileManager projectileManager; // 新增注入
+    @Autowired private SupplyDropManager supplyDropManager; // 新增注入
+    @Autowired private PlayerStateManager playerStateManager;
     @Getter
     private final Map<Long, ActiveGame> activeGames = new ConcurrentHashMap<>();
 
@@ -55,16 +57,20 @@ public class GameManager implements GameLobbyBridge {
         ActiveGame finishedGame = activeGames.remove(gameId);
         if (finishedGame != null) {
             System.out.println("Game " + gameId + " concluded. Authority cleanup started for players: " + finishedGame.playerIds);
-            for (Integer playerId : finishedGame.playerIds) {
-                // 1. 清理游戏会话
-                playerSessionService.removePlayerFromGame(playerId);
-                // 2. ★★★ 立即将玩家状态重置为 ONLINE ★★★
-                //这里交给大厅服务器来处理，游戏服务器无需关注
-                //onlineUserService.updateUserStatus(playerId, UserStatus.ONLINE);
-            }
-        }
 
-        // 3. 将战绩处理任务交给 MatchService（它只负责写数据库）
+            // ★ 新增：遍历玩家，清理他们的游戏内状态 ★
+            for (Integer playerId : finishedGame.playerIds) {
+                playerSessionService.removePlayerFromGame(playerId);
+                onlineUserService.updateUserStatus(playerId, UserStatus.ONLINE);
+
+                // ★ 新增：调用 PlayerStateManager 清理该玩家的数据 ★
+                playerStateManager.cleanupPlayerState(playerId);
+            }
+
+            // ★ 新增：清理该局游戏产生的所有子弹和补给品 ★
+            projectileManager.cleanupProjectilesByGame(gameId);
+            supplyDropManager.cleanupDropsByGame(gameId);
+        }
         matchService.processMatchResults(gameId, results);
     }
 
