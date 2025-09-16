@@ -46,7 +46,7 @@ logging:
 # ===============================================
 game:
   matchmaking:
-    room-max-size: 4 # 匹配房间大小
+    room-max-size: 2 # 匹配房间大小
   rules:
     kills-to-win: 5 # 胜利所需的击杀数
     max-duration-ms: 300000 # 游戏最长持续时间 (5分钟)
