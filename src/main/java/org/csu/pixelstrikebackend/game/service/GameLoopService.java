@@ -39,6 +39,7 @@ public class GameLoopService {
     @Autowired private PlayerSessionService playerSessionService;
     private ScheduledExecutorService gameLoopExecutor;
     private final ObjectMapper mapper = new ObjectMapper();
+    private final Random random = new Random(); // ★ 新增：创建一个 Random 实例 ★
 
 
     @PostConstruct
@@ -314,7 +315,7 @@ public class GameLoopService {
         System.out.println("Respawning player " + userId);
         playerStateManager.respawnPlayer(userId);
 
-        double spawnX = 500;
+        /*double spawnX = 500;
         double spawnY = gameConfig.getPhysics().getGroundY() - 128; // 使用配置
 
         ObjectNode respawnMsg = mapper.createObjectNode();
@@ -322,6 +323,11 @@ public class GameLoopService {
         respawnMsg.put("id", userId);
         respawnMsg.put("x", spawnX);
         respawnMsg.put("y", spawnY);
+        respawnMsg.put("hp", gameConfig.getPlayer().getMaxHealth());
+        respawnMsg.put("serverTime", System.currentTimeMillis());*/
+        ObjectNode respawnMsg = mapper.createObjectNode();
+        respawnMsg.put("type", "respawn");
+        respawnMsg.put("id", userId);
         respawnMsg.put("hp", gameConfig.getPlayer().getMaxHealth());
         respawnMsg.put("serverTime", System.currentTimeMillis());
 
