@@ -71,6 +71,7 @@ public class GameManager implements GameLobbyBridge {
 
     public static class ActiveGame {
         public final Long gameId;
+        @Getter
         public final List<Integer> playerIds;
         public final Map<Integer, Integer> playerCharacterSelections;
         public final long startTime;

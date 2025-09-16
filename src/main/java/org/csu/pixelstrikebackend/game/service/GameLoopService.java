@@ -11,6 +11,7 @@ import org.csu.pixelstrikebackend.game.model.ServerProjectile;
 import org.csu.pixelstrikebackend.lobby.entity.GameMap;
 import org.csu.pixelstrikebackend.lobby.entity.Match;
 import org.csu.pixelstrikebackend.lobby.entity.MatchParticipant;
+import org.csu.pixelstrikebackend.lobby.entity.UserProfile;
 import org.csu.pixelstrikebackend.lobby.mapper.CharacterMapper;
 import org.csu.pixelstrikebackend.lobby.mapper.MapMapper;
 import org.csu.pixelstrikebackend.lobby.mapper.UserProfileMapper;
@@ -23,6 +24,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 @Service
 public class GameLoopService {
@@ -62,6 +64,7 @@ public class GameLoopService {
             updateProjectiles(deltaTime);
             handlePoisonDamage(now);
             checkGameOverConditions(now);
+            broadcastScoreboard();
         } catch (Exception e) {
             System.err.println("Error in game tick: " + e.getMessage());
             e.printStackTrace();
@@ -202,7 +205,6 @@ public class GameLoopService {
         }
     }
 
-    // --- ★ 新增：检查游戏结束的核心方法 ---
     private void checkGameOverConditions(long now) {
         // 获取所有正在进行的游戏
         Map<Long, GameManager.ActiveGame> activeGames = gameManager.getActiveGames();
@@ -232,7 +234,6 @@ public class GameLoopService {
         }
     }
 
-    // --- ★ 新增：结束游戏并处理结果的方法 ---
     private void endGame(GameManager.ActiveGame game) {
         // 1. 收集所有玩家的最终战绩
         List<MatchParticipant> results = new ArrayList<>();
@@ -318,5 +319,44 @@ public class GameLoopService {
         respawnMsg.put("serverTime", System.currentTimeMillis());
 
         gameSessionManager.broadcast(respawnMsg.toString());
+    }
+
+    private void broadcastScoreboard() {
+        // 遍历所有正在进行的游戏
+        for (GameManager.ActiveGame game : gameManager.getActiveGames().values()) {
+            List<Map<String, Object>> scoreboard = new ArrayList<>();
+            List<Integer> playerIds = game.getPlayerIds();
+
+            // 批量获取玩家的昵称，提高效率
+            if (playerIds.isEmpty()) continue;
+            List<UserProfile> profiles = userProfileMapper.selectBatchIds(playerIds);
+            Map<Integer, String> idToNicknameMap = profiles.stream()
+                    .collect(Collectors.toMap(UserProfile::getUserId, UserProfile::getNickname));
+
+            // 为每个玩家构建战绩信息
+            for (Integer playerId : playerIds) {
+                Map<String, Integer> stats = playerStateManager.getStats(playerId);
+                Map<String, Object> playerData = new HashMap<>();
+                playerData.put("id", playerId);
+                playerData.put("nickname", idToNicknameMap.getOrDefault(playerId, "玩家 " + playerId));
+                playerData.put("kills", stats.get("kills"));
+                playerData.put("deaths", stats.get("deaths"));
+                scoreboard.add(playerData);
+            }
+
+            // 按击杀数降序排序
+            scoreboard.sort((p1, p2) -> (Integer)p2.get("kills") - (Integer)p1.get("kills"));
+
+            long elapsedTime = System.currentTimeMillis() - game.startTime;
+            long maxDuration = gameConfig.getRules().getMaxDurationMs();
+            int remainingSeconds = (int) Math.max(0, (maxDuration - elapsedTime) / 1000);
+
+            // 构建并发送包含排行榜和剩余时间的消息
+            ObjectNode msg = mapper.createObjectNode();
+            msg.put("type", "scoreboard_update");
+            msg.put("gameTimeRemainingSeconds", remainingSeconds); // <-- 将剩余时间加入消息体
+            msg.set("scores", mapper.valueToTree(scoreboard));
+            gameSessionManager.broadcast(msg.toString());
+        }
     }
 }
