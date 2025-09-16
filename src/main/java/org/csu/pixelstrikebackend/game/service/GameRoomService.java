@@ -180,25 +180,25 @@ public class GameRoomService {
 
                 case "BOMB":
                     // 立即对拾取者造成15点伤害
-                    GameRoomService.DamageResult res = playerStateManager.applyDamage(userId, userId, 15);
+                    DamageResult res = playerStateManager.applyDamage(userId, userId, 15);
 
+                    // 广播伤害消息，让客户端更新血量
                     ObjectNode dmgMsg = mapper.createObjectNode();
                     dmgMsg.put("type", "damage");
-                    dmgMsg.put("attacker", userId); // 自己炸自己
+                    dmgMsg.put("attacker", userId);
                     dmgMsg.put("victim", userId);
                     dmgMsg.put("damage", 15);
                     dmgMsg.put("hp", res.hp);
                     dmgMsg.put("dead", res.dead);
-                    dmgMsg.put("kx", 0); // 道具爆炸通常没有击退
+                    dmgMsg.put("kx", 0);
                     dmgMsg.put("ky", 0);
                     dmgMsg.put("srvTS", System.currentTimeMillis());
-                    sessionManager.broadcast(gameId,dmgMsg.toString());
+                    sessionManager.broadcast(gameId, dmgMsg.toString());
 
-                    // 广播消息，让客户端播放爆炸特效
                     ObjectNode bombMsg = mapper.createObjectNode();
                     bombMsg.put("type", "player_bombed");
                     bombMsg.put("userId", userId);
-                    sessionManager.broadcast(gameId,bombMsg.toString()); // 这个消息依然需要
+                    sessionManager.broadcast(gameId, bombMsg.toString());
                     break;
                 case "POISON":
                     // 让玩家中毒，持续10秒

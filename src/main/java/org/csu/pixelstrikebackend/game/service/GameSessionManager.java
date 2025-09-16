@@ -1,3 +1,4 @@
+// src/main/java/org/csu/pixelstrikebackend/game/service/GameSessionManager.java
 package org.csu.pixelstrikebackend.game.service;
 
 import org.springframework.stereotype.Service;
@@ -13,6 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class GameSessionManager {
 
+    // --- ★ 核心修改：从单个Map变为Map的Map，按gameId隔离房间 ---
     private final Map<Long, Map<String, WebSocketSession>> gameRooms = new ConcurrentHashMap<>();
 
     public void addSession(Long gameId, WebSocketSession session) {
@@ -56,7 +58,6 @@ public class GameSessionManager {
         }
     }
 
-
     public void sendTo(WebSocketSession session, String json) {
         sendTo(session, new TextMessage(json));
     }
@@ -64,12 +65,11 @@ public class GameSessionManager {
     private void sendTo(WebSocketSession session, TextMessage message) {
         try {
             if (session != null && session.isOpen()) {
-                // ★ 核心修复：对 session 对象本身进行同步，确保消息原子性发送 ★
                 synchronized (session) {
                     session.sendMessage(message);
                 }
             }
-        } catch (IOException | IllegalStateException e) { // 合并异常捕获
+        } catch (IOException | IllegalStateException e) {
             System.err.println("Failed to send message to session " + session.getId() + ": " + e.getMessage());
             Long gameId = (Long) session.getAttributes().get("gameId");
             if (gameId != null) {

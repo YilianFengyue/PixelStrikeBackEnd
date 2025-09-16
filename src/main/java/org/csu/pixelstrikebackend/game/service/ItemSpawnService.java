@@ -28,7 +28,8 @@ public class ItemSpawnService {
             "Shotgun",         // 霰弹枪
             "Railgun",         // 激光枪
             "HEALTH_PACK",     // 血包
-            "POISON"           // 毒药
+            "POISON",          // 毒药
+            "BOMB"             // 新增：炸弹
     );
 
     private final List<double[]> spawnPoints = Arrays.asList(

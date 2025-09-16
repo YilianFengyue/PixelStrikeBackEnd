@@ -1,4 +1,3 @@
-// src/main/java/org/csu/pixelstrikebackend/game/service/GameLoopService.java
 package org.csu.pixelstrikebackend.game.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -335,6 +334,7 @@ public class GameLoopService {
     private void broadcastScoreboard() {
         // 遍历所有正在进行的游戏
         for (GameManager.ActiveGame game : gameManager.getActiveGames().values()) {
+            Long gameId = game.getGameId();
             List<Map<String, Object>> scoreboard = new ArrayList<>();
             List<Integer> playerIds = game.getPlayerIds();
 
@@ -367,7 +367,7 @@ public class GameLoopService {
             msg.put("type", "scoreboard_update");
             msg.put("gameTimeRemainingSeconds", remainingSeconds); // <-- 将剩余时间加入消息体
             msg.set("scores", mapper.valueToTree(scoreboard));
-            gameSessionManager.broadcast(msg.toString());
+            gameSessionManager.broadcast(gameId, msg.toString());
         }
     }
 }
