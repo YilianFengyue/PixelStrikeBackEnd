@@ -14,7 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class PlayerStateManager {
 
     // --- 权威状态 ---
-    private static final int MAX_HP = 100;
+    private static final int MAX_HP = 300;
     @Getter
     final Map<Integer, Integer> hpByPlayer = new ConcurrentHashMap<>();
     private final Map<Integer, String> weaponByPlayer = new ConcurrentHashMap<>();

@@ -10,8 +10,8 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/pixelstrike #?servierTimezone=UTC
     username: root
-    password: 1234
-    #password: abcABC369258
+    #password: 1234
+    password: abcABC369258
   servlet:
     multipart:
       enabled: true
@@ -46,13 +46,13 @@ logging:
 # ===============================================
 game:
   matchmaking:
-    room-max-size: 2 # 匹配房间大小
+    room-max-size: 4 # 匹配房间大小
   rules:
     kills-to-win: 5 # 胜利所需的击杀数
     max-duration-ms: 300000 # 游戏最长持续时间 (5分钟)
     countdown-seconds: 5 # 开局倒计时
   player:
-    max-health: 100 # 玩家最大生命值
+    max-health: 300 # 玩家最大生命值
     initial-ammo: 30 # 初始弹药
     respawn-time-ms: 3000 # 复活时间 (3秒)
     height: 40.0 # 玩家高度，用于命中判定
